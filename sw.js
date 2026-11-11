@@ -1,20 +1,20 @@
 /* Service worker: cache-first para funcionar 100 % offline en la calle.
    Al cambiar protocolos o código, subir CACHE (v2, v3...) para forzar la actualización. */
-const CACHE = "sirena-v4";
+const CACHE = "sirena-v5";
 const ARCHIVOS = [
   "./",
   "./index.html",
   "./styles.css",
   "./app.js",
-  "./data/maletin.js",
-  "./data/protocolos.js",
-  "./data/protocolos_ampliados.js",
-  "./data/manejo_general.js",
-  "./data/soporte_vital.js",
+  "./maletin.js",
+  "./protocolos.js",
+  "./protocolos_ampliados.js",
+  "./manejo_general.js",
+  "./soporte_vital.js",
   "./manifest.webmanifest",
-  "./icons/icon-192.png",
-  "./icons/icon-512.png",
-  "./icons/icon-maskable-512.png"
+  "./icon-192.png",
+  "./icon-512.png",
+  "./icon-maskable-512.png"
 ];
 
 self.addEventListener("install", (e) => {

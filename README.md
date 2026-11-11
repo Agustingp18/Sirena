@@ -17,19 +17,14 @@ Flujo: **código de despacho + motivo → banderas rojas → derivación o resol
 ## Estructura
 
 ```
-sirena/
-├── index.html              Punto de entrada
-├── styles.css              Diseño (oscuro por defecto, botones ≥ 60 px)
-├── app.js                  Motor de decisión, navegación, maletín, historia clínica
-├── sw.js                   Service worker (cache offline)
-├── manifest.webmanifest    Instalación como app
-├── icons/                  Íconos 192/512 y maskable
-└── data/
-    ├── protocolos.js       10 motivos base: banderas, soporte, diagnósticos, tratamientos
-    ├── protocolos_ampliados.js  20 motivos frecuentes más (agitación, síncope, convulsión...)
-    ├── manejo_general.js   Banderas por aparato y tratamiento sintomático para motivos sin protocolo
-    ├── maletin.js          Catálogo de fármacos del maletín estándar (editable en la app)
-    └── soporte_vital.js    BLS · ACLS · PALS · PHTLS + calculadora pediátrica
+sirena/   (todos los archivos en la raíz, sin carpetas: así se suben fácil desde la web de GitHub)
+├── index.html · styles.css · app.js
+├── sw.js · manifest.webmanifest · icon-192.png · icon-512.png · icon-maskable-512.png
+├── protocolos.js            10 motivos base: banderas, soporte, diagnósticos, tratamientos
+├── protocolos_ampliados.js  20 motivos frecuentes más
+├── manejo_general.js        Banderas por aparato y tratamiento sintomático
+├── maletin.js               Catálogo editable del maletín
+└── soporte_vital.js         BLS · ACLS · PALS · PHTLS + calculadora pediátrica
 ```
 
 ## Publicar en GitHub Pages (gratis)
@@ -37,13 +32,13 @@ sirena/
 1. Crear una cuenta en https://github.com si no la tenés.
 2. Botón **New** (nuevo repositorio) → nombre `sirena` → **Public** → **Create repository**.
 3. En el repositorio nuevo: **uploading an existing file** (o *Add file → Upload files*).
-4. Descomprimir el ZIP y arrastrar **el contenido** de la carpeta `sirena` (index.html, app.js, data/, icons/, etc.), no la carpeta en sí. **Commit changes**.
+4. Descomprimir el ZIP y arrastrar **el contenido** de la carpeta `sirena` (todos los archivos), no la carpeta en sí. **Commit changes**.
 5. **Settings → Pages** → en *Build and deployment*, *Source*: **Deploy from a branch** → rama `main`, carpeta `/ (root)` → **Save**.
 6. En uno o dos minutos la app queda en `https://<tu-usuario>.github.io/sirena/`.
 
 GitHub Pages es gratis con repositorio público. Para usarlo con un repositorio privado hace falta un plan pago (Pro o superior). El repositorio no contiene datos de pacientes ni el link de la planilla de registro.
 
-**Actualizar la app**: subir los archivos modificados al repositorio (*Add file → Upload files*, reemplazan a los anteriores) y cambiar en `sw.js` la línea `const CACHE = "sirena-v4"` por el número siguiente. Los teléfonos descargan la versión nueva la próxima vez que abren la app con conexión (se ve al abrirla por segunda vez).
+**Actualizar la app**: subir los archivos modificados al repositorio (*Add file → Upload files*, reemplazan a los anteriores) y cambiar en `sw.js` la línea `const CACHE = "sirena-v5"` por el número siguiente. Los teléfonos descargan la versión nueva la próxima vez que abren la app con conexión (se ve al abrirla por segunda vez).
 
 ## Instalar en el teléfono
 
@@ -81,8 +76,8 @@ Códigos: cada motivo y diagnóstico tiene su CIE-10. El campo SNOMED CT está p
 ## Editar contenido
 
 - **Fármacos del móvil**: desde la app, botón *Maletín*. Los que se apagan no se recomiendan; la app busca una alternativa de la guía o lo marca como faltante. Un fármaco agregado puede declararse *equivalente* a uno del catálogo para que los protocolos lo usen.
-- **Protocolos**: `data/protocolos.js`. Cada tratamiento referencia un `id` de `data/maletin.js` y puede tener `alt` (alternativas en orden de preferencia).
-- Después de editar archivos, subir la versión en `sw.js` (`sirena-v3`) para que los teléfonos descarguen el cambio.
+- **Protocolos**: `protocolos.js`. Cada tratamiento referencia un `id` de `maletin.js` y puede tener `alt` (alternativas en orden de preferencia).
+- Después de editar archivos, subir la versión en `sw.js` (`sirena-v5`) para que los teléfonos descarguen el cambio.
 
 ## Fuentes de referencia
 
