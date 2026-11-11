@@ -20,7 +20,8 @@
   const COLUMNAS = ["ID atención", "Fecha", "Hora", "Turno", "Código despacho", "Edad", "Sexo", "Motivo", "CIE-10 motivo", "Tipo de manejo",
     "Diagnóstico presuntivo", "CIE-10 diagnóstico", "SNOMED CT diagnóstico", "Banderas rojas", "Banderas amarillas", "Conducta",
     "Paciente", "Internación / derivación", "Medicación administrada", "Faltantes del maletín", "RCP", "ECG",
-    "TA", "FC", "FR", "SatO2", "T° axilar", "Glucemia", "Glasgow", "Versión app"];
+    "TA", "FC", "FR", "SatO2", "T° axilar", "Glucemia", "Glasgow", "Versión app",
+    "Tipo paciente", "Peso (kg)", "Embarazo", "Hora llegada", "Hora salida", "Hora llegada destino"];
 
   const CODIGOS = {
     rojo: { label: "Rojo", sub: "Emergencia" },
@@ -91,18 +92,90 @@
   const S = {};
   function estadoInicial() {
     Object.assign(S, {
-      codigo: null, motivo: null, texto: "", caseId: null, inicio: null,
+      codigo: null, motivo: null, texto: "", caseId: null, inicio: null, retomable: null, flujo: null,
       banderas: new Set(), auto: new Set(), off: new Set(), sistemas: new Set(),
       override: false, dx: null,
       v: { ta: "", tas: "", tad: "", fc: "", fr: "", sat: "", temp: "", gluc: "", gcs: "", arm: "" },
       dados: {},
       hc: { edad: "", sexo: "", antec: "", cv: "", resp: "", abd: "", neuro: "", desc: new Set(), descOtro: "", obs: "", rcp: false, ecg: false, paciente: "", intern: "" },
       gcsComp: null,
+      pac: { tipo: "", emb: false, kg: "" },
+      horas: { llegada: "", salida: "", destino: "" },
       tec: S.tec || { edad: "", f: new Set() },
       pals: S.pals || { kg: "", edad: "" }
     });
   }
   estadoInicial();
+
+  /* ------------------------------------------------------------ paciente */
+  const esNino = () => S.pac.tipo === "nino" || (num(S.hc.edad) !== null && num(S.hc.edad) < 15);
+  const ICO = {
+    nino: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="9" r="2.8"/><path d="M8.5 21v-4.2a3.5 3.5 0 0 1 7 0V21"/></svg>',
+    adulto: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="4.8" r="2.6"/><path d="M7 22v-8.3A4.4 4.4 0 0 1 11.4 9.3h1.2A4.4 4.4 0 0 1 17 13.7V22"/></svg>'
+  };
+  function pacienteHTML() {
+    const t = S.pac.tipo, sx = S.hc.sexo;
+    return `<div class="pacrow">
+        <button type="button" class="pbtn" data-act="ptipo" data-val="nino" aria-pressed="${t === "nino"}">${ICO.nino}<span>Niño</span></button>
+        <button type="button" class="pbtn" data-act="ptipo" data-val="adulto" aria-pressed="${t === "adulto"}">${ICO.adulto}<span>Adulto</span></button>
+        <button type="button" class="pbtn sx" data-act="psexo" data-val="F" aria-pressed="${sx === "F"}"><b>F</b><span>Mujer</span></button>
+        <button type="button" class="pbtn sx" data-act="psexo" data-val="M" aria-pressed="${sx === "M"}"><b>M</b><span>Varón</span></button>
+      </div>
+      ${t || sx ? `<div class="pacdatos">
+        <label class="vf"><span>Edad</span><input data-pac="edad" type="text" inputmode="decimal" autocomplete="off" placeholder="años" value="${esc(S.hc.edad)}" aria-label="Edad en años"></label>
+        ${t === "nino" ? `<label class="vf"><span>Peso</span><input data-pac="kg" type="text" inputmode="decimal" autocomplete="off" placeholder="kg" value="${esc(S.pac.kg)}" aria-label="Peso en kg"></label>` : ""}
+        ${sx === "F" && t !== "nino" ? `<button type="button" class="pbtn emb" data-act="pemb" aria-pressed="${S.pac.emb}"><b>${S.pac.emb ? "✓" : "+"}</b><span>Embarazada</span></button>` : ""}
+      </div>` : ""}
+      ${t === "nino" ? `<p class="hint">Pediátrico: las dosis de adulto se bloquean y se usa la calculadora por peso.</p>` : ""}`;
+  }
+  function refrescarPaciente() { $$(".pac").forEach((el) => { el.innerHTML = pacienteHTML(); }); }
+
+  /* ------------------------------------------------------------ guardado automático del caso en curso */
+  const KEY_CASO = "sirena.caso.actual";
+  let tCaso = null;
+  function guardarCaso() {
+    clearTimeout(tCaso);
+    tCaso = setTimeout(() => {
+      if (!S.motivo) return;
+      try {
+        localStorage.setItem(KEY_CASO, JSON.stringify(Object.assign({}, S, {
+          banderas: [...S.banderas], auto: [...S.auto], off: [...S.off], sistemas: [...S.sistemas],
+          hc: Object.assign({}, S.hc, { desc: [...S.hc.desc] }), tec: undefined, retomable: undefined,
+          pantalla: location.hash.replace("#", "") || "inicio", guardado: Date.now()
+        })));
+      } catch (e) { /* sin almacenamiento */ }
+    }, 250);
+  }
+  function borrarCaso() { clearTimeout(tCaso); try { localStorage.removeItem(KEY_CASO); } catch (e) { /* nada */ } }
+  function leerCaso() { try { return JSON.parse(localStorage.getItem(KEY_CASO) || "null"); } catch (e) { return null; } }
+  function retomarCaso(c) {
+    const destino = c.pantalla && !c.pantalla.startsWith("f-") ? c.pantalla : "triage";
+    estadoInicial();
+    Object.assign(S, c, {
+      banderas: new Set(c.banderas), auto: new Set(c.auto), off: new Set(c.off), sistemas: new Set(c.sistemas),
+      hc: Object.assign({}, S.hc, c.hc, { desc: new Set(c.hc.desc || []) }), tec: S.tec, retomable: null
+    });
+    delete S.pantalla; delete S.guardado;
+    go(destino);
+  }
+
+  /* ------------------------------------------------------------ notas de prueba */
+  const KEY_NOTAS = "sirena.notas";
+  const NOTAS = (() => { try { return JSON.parse(localStorage.getItem(KEY_NOTAS) || "[]"); } catch (e) { return []; } })();
+  const saveNotas = () => { try { localStorage.setItem(KEY_NOTAS, JSON.stringify(NOTAS)); } catch (e) { /* nada */ } };
+
+  /* ------------------------------------------------------------ pantalla encendida */
+  let wakeLock = null, quiereWake = false;
+  async function pantallaEncendida(on) {
+    quiereWake = on;
+    try {
+      if (on && !wakeLock && navigator.wakeLock && document.visibilityState === "visible") {
+        wakeLock = await navigator.wakeLock.request("screen");
+        wakeLock.addEventListener("release", () => { wakeLock = null; });
+      } else if (!on && wakeLock) { await wakeLock.release(); wakeLock = null; }
+    } catch (e) { wakeLock = null; }
+  }
+  document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible" && quiereWake) pantallaEncendida(true); });
 
   /* ------------------------------------------------------------ registro de atenciones (sin datos personales) */
   const REG = (() => { try { return JSON.parse(localStorage.getItem(KEY_REG) || "[]"); } catch (e) { return []; } })();
@@ -203,6 +276,18 @@
     const tas = num(String(v.ta).split("/")[0]);
     const fc = num(v.fc), fr = num(v.fr), sat = num(v.sat), t = num(v.temp), gcs = num(v.gcs);
     const epoc = S.motivo === "disnea" && /epoc/.test(norm(S.hc.antec + " " + S.texto));
+    if (esNino()) {
+      const ed = num(S.hc.edad);
+      const tasMin = ed === null ? 70 : ed < 1 ? 70 : ed < 10 ? 70 + 2 * ed : 90;
+      return {
+        u_tas: tas !== null && tas > 0 && tas < tasMin,
+        u_fc: false, u_fr: false,
+        u_sat: sat !== null && sat > 0 && sat < 92,
+        u_temp: t !== null && t >= 40,
+        u_hipot: t !== null && t > 0 && t < 35,
+        u_gcs: gcs !== null && gcs >= 3 && gcs < 15
+      };
+    }
     return {
       u_tas: tas !== null && tas > 0 && tas < 90,
       u_fc: fc !== null && fc > 0 && (fc < 50 || fc > 120),
@@ -231,8 +316,9 @@
       vistos.add(r.f); return true;
     });
   }
-  const dado = (r, i) => (r.key in S.dados ? S.dados[r.key] : !r.cond);
-  function medicacionDada(dx) { return medicacion(dx).filter(dado); }
+  const embInfo = (f) => (S.pac.emb && window.FICHA_EMB && window.FICHA_EMB.items[f]) || null;
+  const dado = (r) => (r.key in S.dados ? S.dados[r.key] : !r.cond && !((embInfo(r.f) || [])[0] === "no"));
+  function medicacionDada(dx) { return esNino() ? [] : medicacion(dx).filter(dado); }
   function dosisCorta(t) { return String(t).split(/\.\s|\. /)[0].replace(/\.$/, ""); }
   const enDomicilio = () => S.flujo === "domicilio";
 
@@ -243,7 +329,8 @@
     const rojas = tildadas("rojo"), amarillas = tildadas("amarillo");
     const F = [];
     F.push(["Código", S.codigo ? CODIGOS[S.codigo].label : "—"]);
-    F.push(["Edad / Sexo", `${S.hc.edad || "—"} / ${S.hc.sexo || "—"}`]);
+    F.push(["Edad / Sexo", `${S.hc.edad || "—"} / ${S.hc.sexo || "—"}${esNino() ? " · pediátrico" : ""}${S.pac.kg ? ` · ${S.pac.kg} kg` : ""}${S.pac.emb ? " · embarazada" : ""}`]);
+    F.push(["Horarios", `Llegada ${S.horas.llegada || "—"} · Salida ${S.horas.salida || "—"} · Llegada a destino ${S.horas.destino || "—"}`]);
     F.push(["Motivo de la consulta", p ? `${p.titulo}${S.texto && norm(S.texto) !== norm(p.titulo) ? ` (refiere: ${S.texto})` : ""}` : "—"]);
     F.push(["Antec. de enferm. y medicación actual", S.hc.antec || "—"]);
     F.push(["Signos vitales", [
@@ -301,7 +388,9 @@
       tildadas("rojo").map((b) => b.texto).join("; "), tildadas("amarillo").map((b) => b.texto).join("; "),
       conductaTxt(), S.hc.paciente, S.hc.intern, meds.join("; "), falt.join("; "),
       S.hc.rcp ? "Sí" : "No", S.hc.ecg ? "Sí" : "No",
-      S.v.ta, S.v.fc, S.v.fr, S.v.sat, S.v.temp, S.v.gluc, S.v.gcs, META.version
+      S.v.ta, S.v.fc, S.v.fr, S.v.sat, S.v.temp, S.v.gluc, S.v.gcs, META.version,
+      esNino() ? "Pediátrico" : (S.pac.tipo === "adulto" || S.hc.edad ? "Adulto" : ""), S.pac.kg, S.pac.emb ? "Sí" : "",
+      S.horas.llegada, S.horas.salida, S.horas.destino
     ];
     return fila.map((x) => String(x == null ? "" : x).replace(/[\t\r\n]+/g, " ").trim());
   }
@@ -326,6 +415,7 @@
       <h1>${esc(titulo)}</h1>
       ${chip ? `<span class="chip ${c || "none"}">${c ? "Código " + CODIGOS[c].label : "Sin código"}</span>` : ""}
       ${extra}
+      <button class="back nota" data-act="nota" aria-label="Anotar un problema de la app"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M13.5 6.5l4 4"/></svg></button>
     </div></header>`;
   }
   const bar = (html) => `<nav class="bar"><div class="wrap">${html}</div></nav>`;
@@ -387,7 +477,7 @@
     document.body.classList.add("lock");
     const btn = h.querySelector(".hoja-p .back"); if (btn) btn.focus();
   }
-  function cerrarHoja() { pararContador(); const h = $("#hoja"); if (h) { h.hidden = true; h.innerHTML = ""; } document.body.classList.remove("lock"); }
+  function cerrarHoja() { pararContador(); pantallaEncendida(location.hash === "#soporte"); const h = $("#hoja"); if (h) { h.hidden = true; h.innerHTML = ""; } document.body.classList.remove("lock"); }
 
   /* ------------------------------------------------------------ contador de FC y FR */
   const CT = { k: null, dur: 30, t0: 0, taps: [], timer: null, fin: false, audio: null };
@@ -397,7 +487,7 @@
   };
   function pararContador() { if (CT.timer) { clearInterval(CT.timer); CT.timer = null; } }
   function abrirContador(k) {
-    pararContador();
+    pararContador(); pantallaEncendida(true);
     Object.assign(CT, { k, t0: 0, taps: [], fin: false });
     const d = CT_TXT[k];
     $("#hoja").innerHTML = `<div class="hoja-bg" data-act="hojaX"></div>
@@ -507,6 +597,9 @@
     const tema = document.documentElement.getAttribute("data-theme") === "light" ? "☾" : "☀";
     return `${header("Sirena", { back: false, chip: false, logo: true, extra: `<button class="back" data-act="tema" aria-label="Cambiar tema claro u oscuro">${tema}</button>` })}
     <main class="wrap">
+      ${S.retomable && !S.motivo ? (() => { const c = S.retomable; const pr = P.find((x) => x.id === c.motivo); const min = Math.round((Date.now() - c.guardado) / 60000);
+        return `<div class="alert warn"><p class="k">Atención sin terminar</p><p>${esc(pr ? pr.titulo : c.texto || "Otro motivo")} · hace ${min < 1 ? "menos de 1 min" : min < 60 ? min + " min" : Math.round(min / 60) + " h"}</p>
+        <div class="row-btns"><button class="btn sm" data-act="descartar">Descartar</button><button class="btn sm primary" data-act="retomar">Retomar</button></div></div>`; })() : ""}
       <section>
         <p class="label">Código de despacho</p>
         <div class="codes">${Object.entries(CODIGOS).map(([k, v]) => `<button class="code" data-c="${k}" data-act="codigo" aria-pressed="${S.codigo === k}">${v.label}<small>${v.sub}</small></button>`).join("")}</div>
@@ -515,10 +608,11 @@
       <section>
         <p class="label">Motivo de consulta</p>
         <div class="search"><input id="q" type="search" autocomplete="off" placeholder="Escribí el motivo (ej. falta de aire)" value="${esc(S.texto)}" aria-label="Escribir motivo de consulta"></div>
+        <div class="pac">${pacienteHTML()}</div>
         <div id="res">${resultados()}</div>
       </section>
       <button class="reglink" data-act="go" data-to="registro"><span>Registro de atenciones</span><b class="chip ${REG.length ? "amarillo" : "none"}">${REG.length} pendiente${REG.length === 1 ? "" : "s"}</b></button>
-      <p class="disclaimer">${esc(META.estado)}. ${esc(META.poblacion)} La decisión final es del médico actuante. Emergencias: ${esc(META.emergencias)}.</p>
+      <p class="disclaimer">${esc(META.estado)}. ${esc(META.poblacion)} La decisión final es del médico actuante. Emergencias: ${esc(META.emergencias)}. <b>Versión ${esc(META.version)}</b></p>
     </main>`;
   };
 
@@ -530,7 +624,8 @@
     <main class="wrap">
       ${p.general ? `<div class="alert warn"><p class="k">Manejo general · sin protocolo específico</p><p>Elegí el o los aparatos comprometidos para ver sus banderas. No reemplaza un protocolo específico: aplicá tu criterio.</p></div>
       <section><p class="label">Aparatos comprometidos</p><div class="chips">${window.SISTEMAS.map((x) => `<button data-act="sis" data-id="${x.id}" aria-pressed="${S.sistemas.has(x.id)}">${esc(x.nombre)}</button>`).join("")}</div></section>` : ""}
-      <section><p class="label">Signos vitales</p>${vitalesHTML()}<p class="hint" style="margin-top:8px">Al cargarlos se marcan solas las banderas que correspondan. Podés destildarlas.</p></section>
+      <div class="horas mini">${horaHTML("llegada", "Hora de llegada")}</div>
+      <section><p class="label">Signos vitales</p>${vitalesHTML()}<p class="hint" style="margin-top:8px">${esNino() ? "Pediátrico: la FC y la FR no se marcan solas porque dependen de la edad. Tocá FC o FR para ver la tabla. La TA usa el umbral de hipotensión pediátrico." : "Al cargarlos se marcan solas las banderas que correspondan. Podés destildarlas."}</p></section>
       <div class="legend"><span><i class="sq rojo"></i>Roja: criterio de traslado según guía</span><span><i class="sq amarillo"></i>Amarilla: domicilio con conducta específica</span></div>
       ${rojasP.length ? `<section><p class="label">Banderas rojas · ${esc(p.corto)}</p><div class="group">${rojasP.map(flagHTML).join("")}</div></section>` : ""}
       ${amarP.length ? `<section><p class="label">Banderas amarillas · ${esc(p.corto)}</p><div class="group">${amarP.map(flagHTML).join("")}</div></section>` : ""}
@@ -582,13 +677,14 @@
       const cuenta = { ok: 0, alt: 0, no: 0 };
       filas.forEach((r) => cuenta[r.estado]++);
       html += `<article class="block" id="b1"><h2><span class="n">1</span>Medicación a administrar</h2><div class="body">
-        <p class="hint">Tildado = administrado (pasa a la historia clínica). Los marcados "según cuadro" solo si corresponde.</p>
-        ${meds.length ? meds.map((r) => `<div class="rx${r.cond ? " cond" : ""}"><label class="given"><input type="checkbox" data-act="dado" data-key="${r.key}" ${dado(r) ? "checked" : ""}><span class="box" aria-hidden="true"></span><b>${esc(nombreFarmaco(r.f))}</b>${r.cond ? `<em class="condt">según cuadro</em>` : ""}</label><span class="pres">${esc(presentacion(r.f))}</span><span>${esc(r.dosis)}</span>${r.estado === "alt" ? `<span class="note">Sustituye a ${esc(nombreFarmaco(r.original))} (sin stock).</span>` : ""}${r.nota ? `<span class="note">${esc(r.nota)}</span>` : ""}</div>`).join("")
-          : `<p class="hint">${dx.tratamiento.length ? "Ningún fármaco indicado está en el maletín. Ver bloque 3." : "Este cuadro no requiere medicación del maletín."}</p>`}
+        ${esNino() ? `<div class="alert warn"><p class="k">Paciente pediátrico</p><p>Las dosis de este protocolo son de adulto. Calculá por peso en la ficha de medicación pediátrica${S.pac.kg ? ` (${esc(S.pac.kg)} kg cargados)` : ""}.</p><div class="row-btns"><button class="btn sm primary" data-act="go" data-to="f-ped">Abrir medicación pediátrica</button></div></div>` : `<p class="hint">Tildado = administrado (pasa a la historia clínica). Los marcados "según cuadro" solo si corresponde.</p>
+        ${S.pac.emb ? `<div class="alert warn"><p><b>Embarazada:</b> cada fármaco indica si se puede usar. Los contraindicados quedan sin tildar.</p></div>` : ""}
+        ${meds.length ? meds.map((r) => `<div class="rx${r.cond ? " cond" : ""}"><label class="given"><input type="checkbox" data-act="dado" data-key="${r.key}" ${dado(r) ? "checked" : ""}><span class="box" aria-hidden="true"></span><b>${esc(nombreFarmaco(r.f))}</b>${r.cond ? `<em class="condt">según cuadro</em>` : ""}</label><span class="pres">${esc(presentacion(r.f))}</span><span>${esc(r.dosis)}</span>${r.estado === "alt" ? `<span class="note">Sustituye a ${esc(nombreFarmaco(r.original))} (sin stock).</span>` : ""}${r.nota ? `<span class="note">${esc(r.nota)}</span>` : ""}${embInfo(r.f) ? `<span class="embn ${embInfo(r.f)[0]}">Embarazo: ${esc(embInfo(r.f)[1])}</span>` : ""}</div>`).join("")
+          : `<p class="hint">${dx.tratamiento.length ? "Ningún fármaco indicado está en el maletín. Ver bloque 3." : "Este cuadro no requiere medicación del maletín."}</p>`}`}
       </div></article>
       <article class="block"><h2><span class="n">2</span>Indicaciones al paciente</h2><div class="body">
         ${dx.medidas.length || dx.indicaciones.length ? `<div><h3>Indicaciones</h3><ul>${[...dx.medidas, ...dx.indicaciones].map((t) => `<li>${esc(t)}</li>`).join("")}</ul></div>` : ""}
-        ${dx.receta.length ? `<div><h3>Prescripción</h3><ul>${dx.receta.map((t) => `<li>${esc(t)}</li>`).join("")}</ul></div>` : ""}
+        ${dx.receta.length ? `<div><h3>Prescripción</h3>${esNino() ? `<p class="embn no">Dosis de adulto: ajustar por peso.</p>` : ""}${S.pac.emb ? `<p class="embn prec">Embarazada: revisá la receta. AINE (ibuprofeno, diclofenac) contraindicados desde la semana 20; IECA contraindicados siempre.</p>` : ""}<ul>${dx.receta.map((t) => `<li>${esc(t)}</li>`).join("")}</ul></div>` : ""}
         <div><h3>Pautas de alarma</h3><ul>${dx.alarma.map((t) => `<li>${esc(t)}</li>`).join("")}</ul></div>
       </div></article>
       <article class="block"><h2><span class="n">3</span>Guía vs. maletín</h2><div class="body">
@@ -613,9 +709,8 @@
     return `${header("Historia clínica")}
     <main class="wrap">
       <p class="hint">Mismo orden que la planilla en papel. Los datos filiatorios (nombre, DNI, domicilio, obra social) se completan a mano.</p>
-      <section class="form"><p class="label">Edad y sexo</p>
-        <div class="edadsexo"><label class="vf"><span>Edad</span><input data-hc="edad" inputmode="numeric" placeholder="años" value="${esc(S.hc.edad)}" aria-label="Edad en años"></label>${seg("sexo", ["F", "M", "X"])}</div>
-      </section>
+      <section class="form"><p class="label">Paciente</p><div class="pac">${pacienteHTML()}</div></section>
+      <section class="form"><p class="label">Horarios</p><div class="horas">${horaHTML("llegada", "Llegada")}${horaHTML("salida", "Salida")}${horaHTML("destino", "Llegada a destino")}</div></section>
       <section class="form"><p class="label">Antec. de enferm. y medicación actual</p><textarea data-hc="antec" rows="2" aria-label="Antecedentes y medicación actual" placeholder="Ej. HTA, DBT2. Enalapril 10 mg/día">${esc(S.hc.antec)}</textarea></section>
       <section class="form"><p class="label">Signos vitales</p>${vitalesHTML()}</section>
       <section class="form"><p class="label">Hallazgos</p>${hall("cv", "Cardiovascular")}${hall("resp", "Respiratorio")}${hall("abd", "Abdomen")}${hall("neuro", "Neurológico")}</section>
@@ -631,6 +726,9 @@
     </main>
     ${bar(`<div class="bar3"><button class="btn" data-act="copiar">Copiar HC</button><button class="btn" data-act="guardarReg">Guardar en registro</button><button class="btn primary" data-act="nuevo">Nueva HC</button></div>`)}`;
   };
+  function horaHTML(k, l) {
+    return `<div class="hora"><span>${esc(l)}</span><input type="time" data-hora="${k}" value="${esc(S.horas[k])}" aria-label="${esc(l)}"><button type="button" class="btn sm" data-act="ahora" data-k="${k}">Ahora</button></div>`;
+  }
   function previewHC() {
     return camposHC().map(([k, v]) => `<div class="sr"><span class="sk">${esc(k)}</span><span class="sv2">${esc(v)}</span></div>`).join("");
   }
@@ -646,10 +744,17 @@
       <div id="vaciar" hidden class="alert warn"><p class="k">¿Ya las pegaste en la planilla?</p><p>Al vaciar, se borran de este teléfono.</p>
         <div class="row-btns"><button class="btn sm" data-act="vaciar0">Todavía no</button><button class="btn sm danger" data-act="vaciar2">Sí, vaciar pendientes</button></div></div>` : ""}
       <textarea id="regPlano" class="hc" hidden aria-label="Filas para pegar"></textarea>
+      <section class="form"><p class="label">Notas de prueba · ${NOTAS.length}</p>
+        ${NOTAS.length ? `<ul class="cond">${NOTAS.map((n, i) => `<li class="amarillo"><b>${esc(n[1])} ${esc(n[2])} · ${esc(n[3])}</b><span>${esc(n[5])}</span></li>`).join("")}</ul>
+        <div class="row-btns"><button class="btn sm primary" data-act="copiarNotas">Copiar ${NOTAS.length} nota${NOTAS.length > 1 ? "s" : ""}</button><button class="btn sm ghost" data-act="vaciarNotas1">Vaciar</button></div>
+        <div id="vaciarN" hidden class="alert warn"><p>¿Ya las pegaste en la hoja Notas de la planilla?</p><div class="row-btns"><button class="btn sm" data-act="vaciarNotas0">Todavía no</button><button class="btn sm danger" data-act="vaciarNotas2">Sí, vaciar</button></div></div>`
+          : `<p class="hint">Tocá el lápiz de arriba en cualquier pantalla para anotar algo que falló o que faltó.</p>`}
+      </section>
       <section class="form"><p class="label">Planilla</p>
         <input id="sheetUrl" type="url" placeholder="Pegá acá el link de tu Google Sheets" value="${esc(url)}" aria-label="Link de la planilla">
         <div class="row-btns">${url ? `<a class="btn sm" href="${esc(url)}" target="_blank" rel="noopener">Abrir planilla</a>` : ""}<button class="btn sm ghost" data-act="copiarEnc">Copiar encabezados</button></div>
       </section>
+      <p class="hint">Sirena versión ${esc(META.version)}</p>
     </main>
     ${bar(`<button class="btn" data-act="back">Volver</button>`)}`;
   };
@@ -882,6 +987,8 @@
     document.body.classList.toggle("conbarra", !!document.querySelector("#app .bar"));
     if (["inicio", "triage", "derivacion", "domicilio"].includes(s)) prev = s;
     window.scrollTo(0, keepScroll ? y : 0);
+    pantallaEncendida(s === "soporte");
+    guardarCaso();
   }
   function back() {
     const s = actual();
@@ -894,7 +1001,36 @@
   }
   function nuevo() {
     if (guardarRegistro()) toast("Atención guardada en el registro");
-    estadoInicial(); go("inicio");
+    borrarCaso(); estadoInicial(); go("inicio");
+  }
+
+  function syncPals() { if (esNino()) { if (S.hc.edad) S.pals.edad = S.hc.edad; if (S.pac.kg) S.pals.kg = S.pac.kg; } }
+  function abrirNota() {
+    const h = $("#hoja");
+    h.innerHTML = `<div class="hoja-bg" data-act="hojaX"></div>
+      <section class="hoja-p" role="dialog" aria-modal="true" aria-labelledby="hojaT">
+        <header><h2 id="hojaT">Anotar un problema</h2><button type="button" class="back" data-act="hojaX" aria-label="Cerrar">×</button></header>
+        <div class="hoja-b">
+          <p class="hint">Qué falló, qué faltó o qué te hizo perder tiempo. Se guarda con la pantalla y la hora, sin datos del paciente.</p>
+          <textarea id="notaTxt" class="hc" rows="4" placeholder="Ej. faltó el motivo dolor de oído en niños"></textarea>
+          <button type="button" class="btn primary" data-act="notaOk">Guardar nota</button>
+        </div>
+      </section>`;
+    h.hidden = false; document.body.classList.add("lock");
+    setTimeout(() => { const t = $("#notaTxt"); if (t) t.focus(); }, 50);
+  }
+  function avisoVersion(v) {
+    if (document.getElementById("upd")) return;
+    const d = document.createElement("div");
+    d.id = "upd"; d.setAttribute("role", "status");
+    d.innerHTML = `<span>Hay una versión nueva de Sirena (${esc(v)})</span><button type="button" class="btn sm primary" data-act="recargar">Actualizar</button>`;
+    document.body.appendChild(d);
+  }
+  function chequearVersion() {
+    if (!/^https?:/.test(location.protocol) || !navigator.onLine) return;
+    fetch("version.json?t=" + Date.now(), { cache: "no-store" }).then((r) => (r.ok ? r.json() : null)).then((j) => {
+      if (j && j.version && j.version !== META.version) avisoVersion(j.version);
+    }).catch(() => {});
   }
 
   function refrescarTriage() {
@@ -929,6 +1065,28 @@
         } else S.sistemas.add(id);
         render(true); break;
       }
+      case "ptipo": S.pac.tipo = S.pac.tipo === b.dataset.val ? "" : b.dataset.val; if (S.pac.tipo !== "nino") S.pac.kg = ""; else S.pac.emb = false; syncPals(); refrescarPaciente(); refrescarHC(); if (actual() === "triage") { aplicarVitales(); refrescarTriage(); } guardarCaso(); break;
+      case "psexo": S.hc.sexo = S.hc.sexo === b.dataset.val ? "" : b.dataset.val; if (S.hc.sexo !== "F") S.pac.emb = false; refrescarPaciente(); refrescarHC(); guardarCaso(); break;
+      case "pemb": S.pac.emb = !S.pac.emb; refrescarPaciente(); if (actual() === "domicilio") render(true); refrescarHC(); guardarCaso(); break;
+      case "ahora": { const d = new Date(); S.horas[b.dataset.k] = `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`; $$(`input[data-hora="${b.dataset.k}"]`).forEach((i) => { i.value = S.horas[b.dataset.k]; }); refrescarHC(); guardarCaso(); break; }
+      case "retomar": if (S.retomable) retomarCaso(S.retomable); break;
+      case "descartar": S.retomable = null; borrarCaso(); render(); break;
+      case "nota": abrirNota(); break;
+      case "notaOk": {
+        const t = ($("#notaTxt") || {}).value || "";
+        if (t.trim()) {
+          const d = new Date(), p = protocolo();
+          NOTAS.push([`N${Date.now().toString(36)}`, `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`, `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`,
+            actual(), p ? p.titulo : "", t.trim().replace(/[\t\r\n]+/g, " "), META.version]);
+          saveNotas(); toast("Nota guardada");
+        }
+        cerrarHoja(); if (actual() === "registro") render(true); break;
+      }
+      case "copiarNotas": copiar(tsv(NOTAS), "regPlano", "Notas copiadas"); break;
+      case "vaciarNotas1": $("#vaciarN").hidden = false; break;
+      case "vaciarNotas0": $("#vaciarN").hidden = true; break;
+      case "vaciarNotas2": NOTAS.length = 0; saveNotas(); render(true); toast("Notas vaciadas"); break;
+      case "recargar": location.reload(); break;
       case "tab": {
         const t = b.dataset.tab;
         const destino = { atencion: ultimaAtencion, rcp: "soporte", fichas: "fichas", maletin: "maletin" }[t];
@@ -962,8 +1120,7 @@
       }
       case "armsel": S.v.arm = b.dataset.val; cerrarHoja(); vitalCambio(); break;
       case "vnormales": {
-        const ed = num(S.hc.edad);
-        if (ed !== null && ed < 15) { toast("En niños los valores normales cambian: cargá los medidos"); break; }
+        if (esNino()) { toast("En niños los valores normales cambian: cargá los medidos"); break; }
         let n = 0;
         Object.entries(NORMALES).forEach(([k, val]) => { if (!S.v[k]) { S.v[k] = val; n++; } });
         if (S.v.tas && S.v.tad) S.v.ta = `${S.v.tas}/${S.v.tad}`;
@@ -1036,6 +1193,17 @@
       if (actual() === "triage") { aplicarVitales(); refrescarTriage(); } else refrescarHC();
     }
     else if (t.dataset.hc) { S.hc[t.dataset.hc] = t.value; refrescarHC(); }
+    else if (t.dataset.pac) {
+      if (t.dataset.pac === "edad") {
+        S.hc.edad = t.value.replace(/[^0-9.,]/g, "");
+        const ed = num(S.hc.edad);
+        const tipo = ed === null ? S.pac.tipo : ed < 15 ? "nino" : "adulto";
+        if (tipo !== S.pac.tipo) { S.pac.tipo = tipo; if (tipo === "nino") S.pac.emb = false; const pos = t.selectionStart; refrescarPaciente(); const n = $(`.pac input[data-pac="edad"]`); if (n) { n.focus(); try { n.setSelectionRange(pos, pos); } catch (err) { /* nada */ } } }
+      } else S.pac.kg = t.value.replace(/[^0-9.,]/g, "");
+      syncPals();
+      if (actual() === "triage") { aplicarVitales(); refrescarTriage(); } else refrescarHC();
+    }
+    else if (t.dataset.hora) { S.horas[t.dataset.hora] = t.value; refrescarHC(); }
     else if (t.id === "sheetUrl") { try { localStorage.setItem(KEY_SHEET, t.value.trim()); } catch (err) { /* nada */ } }
     else if (t.id === "kg" || t.id === "edad") {
       S.pals[t.id] = t.value;
@@ -1089,7 +1257,15 @@
     document.body.appendChild(nav);
   }
   if (!document.getElementById("hoja")) { const h = document.createElement("div"); h.id = "hoja"; h.hidden = true; document.body.appendChild(h); }
+  const pendiente = leerCaso();
+  if (pendiente && pendiente.motivo) S.retomable = pendiente;
   render();
+  document.addEventListener("change", guardarCaso);
+  document.addEventListener("input", guardarCaso);
+  document.addEventListener("click", guardarCaso);
+  chequearVersion();
+  window.addEventListener("online", chequearVersion);
+  document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") chequearVersion(); });
   if ("serviceWorker" in navigator && /^https?:/.test(location.protocol) && document.querySelector('link[rel="manifest"]')) {
     window.addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));
   }

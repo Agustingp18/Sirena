@@ -38,7 +38,7 @@
    ========================================================================= */
 
 window.APP_META = {
-  version: "1.4.0",
+  version: "1.5.0",
   planilla: "", // link a la planilla de registro: se carga desde la app (pantalla Registro), no en el código público
   estado: "Borrador — validar con Dirección Médica antes de uso asistencial",
   emergencias: "107 (SAME) · 911",

@@ -443,3 +443,32 @@ body.conbarra { padding-bottom: calc(var(--tabh) + 104px + env(safe-area-inset-b
 .pad.fin:active { background: var(--surface); }
 .bar3 { display: grid; grid-template-columns: 1fr 1.25fr 1fr; gap: 8px; width: 100%; }
 .bar3 .btn { padding: 0 8px; font-size: 15px; }
+
+/* ---- v1.5: paciente, horarios, notas, versión ---- */
+.pac { display: grid; gap: 8px; margin-top: 10px; }
+.pacrow { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 6px; }
+.pbtn { display: grid; place-items: center; align-content: center; gap: 2px; min-height: 64px; border-radius: 14px; border: 1px solid var(--line); background: var(--surface); padding: 6px 4px; }
+.pbtn svg { width: 28px; height: 28px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.pbtn b { font: 800 22px/1 var(--font-ui); }
+.pbtn span { font-size: 12px; font-weight: 700; color: var(--muted); }
+.pbtn[aria-pressed="true"] { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 18%, var(--surface)); color: var(--accent); }
+.pbtn[aria-pressed="true"] span { color: var(--accent); }
+.pacdatos { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; align-items: stretch; }
+.pbtn.emb { min-height: 0; grid-template-columns: auto auto; justify-content: center; gap: 6px; }
+.pbtn.emb b { font-size: 16px; }
+.pbtn.emb[aria-pressed="true"] { border-color: var(--rosa); color: var(--rosa); background: var(--rosa-bg); }
+.pbtn.emb[aria-pressed="true"] span { color: var(--rosa); }
+.embn { font-size: 14px; font-weight: 600; padding: 6px 10px; border-radius: 8px; margin-top: 2px; }
+.embn.si { background: var(--verde-bg); color: var(--verde); }
+.embn.prec { background: var(--amarillo-bg); color: var(--amarillo); }
+.embn.no { background: var(--rojo-bg); color: var(--rojo); }
+p.embn { margin: 0 0 6px; }
+.horas { display: grid; gap: 8px; }
+.hora { display: grid; grid-template-columns: 1fr auto auto; gap: 8px; align-items: center; }
+.hora span { font-weight: 600; }
+.hora input { height: 44px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg); padding: 0 10px; font: 700 17px var(--font-num); min-width: 0; }
+.horas.mini .hora { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 6px 6px 6px 14px; }
+.back.nota { display: grid; place-items: center; flex: none; }
+.back.nota svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linejoin: round; stroke-linecap: round; }
+#upd { position: fixed; left: 50%; transform: translateX(-50%); top: calc(10px + env(safe-area-inset-top, 0px)); z-index: 40; display: flex; align-items: center; gap: 10px;
+  background: var(--surface-2); border: 1px solid var(--accent); border-radius: 14px; padding: 8px 8px 8px 14px; box-shadow: 0 8px 24px rgb(0 0 0 / .4); width: max-content; max-width: calc(100% - 32px); font-weight: 600; font-size: 14px; }
