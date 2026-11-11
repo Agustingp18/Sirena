@@ -24,7 +24,8 @@ sirena/   (todos los archivos en la raíz, sin carpetas: así se suben fácil de
 ├── protocolos_ampliados.js  20 motivos frecuentes más
 ├── manejo_general.js        Banderas por aparato y tratamiento sintomático
 ├── maletin.js               Catálogo editable del maletín
-└── soporte_vital.js         BLS · ACLS · PALS · PHTLS + calculadora pediátrica
+├── soporte_vital.js         BLS · ACLS · PALS · PHTLS + calculadora pediátrica
+└── fichas.js                Fichas: pediatría por peso, intubación, TEC pediátrico, preeclampsia, embarazo
 ```
 
 ## Publicar en GitHub Pages (gratis)
@@ -52,6 +53,17 @@ GitHub Pages es gratis con repositorio público. Para usarlo con un repositorio 
 Primera vez en el teléfono: cargar el maletín real (pantalla Maletín) y pegar el link de la planilla en la pantalla Registro. Ambas cosas quedan guardadas en ese teléfono.
 
 **Prueba local**: `python3 -m http.server 8080` en la carpeta y abrir `http://localhost:8080`.
+
+## Pestañas
+
+- **Atención**: código, motivo, banderas, domicilio o traslado, historia clínica y registro.
+- **RCP**: soporte vital (BLS, ACLS, PALS, PHTLS).
+- **Fichas**: consulta rápida. Medicación pediátrica por peso, secuencia rápida de intubación, TEC leve pediátrico (PECARN), preeclampsia y eclampsia (MSAL 2010), fármacos del maletín en el embarazo.
+- **Maletín**: fármacos disponibles. Todas las dosis se cruzan con esta lista.
+
+## Contador de FC y FR
+
+Al tocar FC o FR en los signos vitales, el botón *Contar* abre un contador: se elige 15, 30 o 60 s y se toca la pantalla en cada latido o respiración (el primer toque arranca el reloj). Calcula la frecuencia con el tiempo entre toques, avisa si los intervalos son irregulares, vibra y suena al terminar, y *Usar* carga el valor.
 
 ## Cómo decide
 

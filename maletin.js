@@ -45,6 +45,17 @@ window.MALETIN_BASE = [
   { id: "amiodarona", nombre: "Amiodarona", presentacion: "Amp 150 mg/3 ml", grupo: "Cardiovascular", enStock: true },
   { id: "adenosina", nombre: "Adenosina", presentacion: "Amp 6 mg/2 ml", grupo: "Cardiovascular", enStock: false },
   { id: "lidocaina", nombre: "Lidocaína 2 %", presentacion: "Fco-amp 20 mg/ml", grupo: "Cardiovascular", enStock: true },
+  { id: "labetalol", nombre: "Labetalol", presentacion: "Amp 100 mg/20 ml (5 mg/ml)", grupo: "Cardiovascular", enStock: false },
+  { id: "hidralazina", nombre: "Hidralazina", presentacion: "Amp 20 mg/ml", grupo: "Cardiovascular", enStock: false },
+  { id: "nifedipina", nombre: "Nifedipina", presentacion: "Comp 10 mg (vía oral, no sublingual)", grupo: "Cardiovascular", enStock: false },
+
+  // --- Vía aérea avanzada (secuencia rápida de intubación)
+  { id: "fentanilo", nombre: "Fentanilo", presentacion: "Amp 0,05 mg/ml (250 mcg/5 ml)", grupo: "Vía aérea avanzada", enStock: false },
+  { id: "ketamina", nombre: "Ketamina", presentacion: "Fco 50 mg/ml (500 mg/10 ml)", grupo: "Vía aérea avanzada", enStock: false },
+  { id: "etomidato", nombre: "Etomidato", presentacion: "Amp 2 mg/ml (20 mg/10 ml)", grupo: "Vía aérea avanzada", enStock: false },
+  { id: "propofol", nombre: "Propofol 1 %", presentacion: "Amp 10 mg/ml", grupo: "Vía aérea avanzada", enStock: false },
+  { id: "succinilcolina", nombre: "Succinilcolina", presentacion: "Verificar concentración del envase", grupo: "Vía aérea avanzada", enStock: false },
+  { id: "rocuronio", nombre: "Rocuronio", presentacion: "Amp 10 mg/ml (50 mg/5 ml)", grupo: "Vía aérea avanzada", enStock: false },
 
   // --- Neurológico / psiquiátrico
   { id: "diazepam", nombre: "Diazepam", presentacion: "Amp 10 mg/2 ml · Comp 5–10 mg", grupo: "Neurológico", enStock: true },
@@ -59,6 +70,7 @@ window.MALETIN_BASE = [
   { id: "tiamina", nombre: "Tiamina", presentacion: "Amp 100 mg", grupo: "Metabólico y antídotos", enStock: true },
   { id: "naloxona", nombre: "Naloxona", presentacion: "Amp 0,4 mg/ml", grupo: "Metabólico y antídotos", enStock: true },
 
+  { id: "gluconato_ca", nombre: "Gluconato de calcio 10 %", presentacion: "Amp 1 g/10 ml", grupo: "Metabólico y antídotos", enStock: false },
   { id: "acido_tranexamico", nombre: "Ácido tranexámico", presentacion: "Amp 500 mg/5 ml", grupo: "Metabólico y antídotos", enStock: false },
 
   // --- Soluciones

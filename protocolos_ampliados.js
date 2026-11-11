@@ -100,7 +100,7 @@
         R("cv2", "Primera convulsión de su vida", "Requiere estudio: traslado."),
         R("cv3", "No recupera la conciencia o queda con foco neurológico", "Traslado. Considerar Código ACV."),
         R("cv4", "Trauma de cráneo, fiebre o rigidez de nuca", "Traslado."),
-        R("cv5", "Embarazo ≥ 20 semanas o puerperio (eclampsia)", "Sulfato de magnesio 4 g EV en 20 min y traslado a maternidad."),
+        R("cv5", "Embarazo ≥ 20 semanas o puerperio (eclampsia)", "[MSAL] Sulfato de magnesio 5 g EV lento en 10–15 min y traslado a maternidad (ver ficha Preeclampsia)."),
         R("cv6", "Hipoglucemia, intoxicación o abstinencia como causa", "Tratar la causa y trasladar."),
         R("cv7", "Lesiones importantes durante la crisis o aspiración", "Traslado."),
         A("cv8", "Abandono o cambio reciente de su medicación antiepiléptica", "Retomar el tratamiento indicado y consultar con su neurólogo en 24–48 h.")
@@ -546,7 +546,7 @@
         R("em3", "Pérdida de líquido amniótico", "Traslado a maternidad."),
         R("em4", "Contracciones regulares o trabajo de parto", "Evaluar si el parto es inminente: si lo es, asistirlo en el lugar. Si no, traslado a maternidad."),
         R("em5", "TA ≥ 140/90 con ≥ 20 semanas, o cefalea, alteraciones visuales o epigastralgia", "Preeclampsia: sulfato de magnesio si hay criterios de gravedad. Traslado a maternidad."),
-        R("em6", "Convulsión", "Eclampsia: sulfato de magnesio 4 g EV en 20 min y traslado."),
+        R("em6", "Convulsión", "[MSAL] Eclampsia: sulfato de magnesio 5 g EV lento en 10–15 min y traslado (ver ficha Preeclampsia)."),
         R("em7", "Disminución de los movimientos fetales (≥ 28 semanas)", "Traslado a maternidad."),
         R("em8", "Trauma abdominal o fiebre", "Traslado a maternidad.")
       ],

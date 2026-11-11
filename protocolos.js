@@ -38,7 +38,7 @@
    ========================================================================= */
 
 window.APP_META = {
-  version: "1.1.0",
+  version: "1.4.0",
   planilla: "", // link a la planilla de registro: se carga desde la app (pantalla Registro), no en el código público
   estado: "Borrador — validar con Dirección Médica antes de uso asistencial",
   emergencias: "107 (SAME) · 911",
@@ -297,7 +297,7 @@ window.PROTOCOLOS = [
       "SCA: AAS 162–325 mg masticada + dinitrato de isosorbide 5 mg SL si TAS > 90.",
       "Edema agudo de pulmón: furosemida 40 mg EV + dinitrato 5 mg SL, posición sentada.",
       "Sospecha de ACV: NO tratar la TA en el prehospitalario (salvo indicación del centro). Activar Código ACV.",
-      "Preeclampsia grave / eclampsia: sulfato de magnesio 4 g EV en 20 min y traslado a maternidad.",
+      "[MSAL] Preeclampsia grave / eclampsia: sulfato de magnesio 5 g EV lento en 10–15 min y traslado a maternidad (ver ficha Preeclampsia).",
       "Contraindicado: nifedipina sublingual.",
       "Preaviso al centro receptor."
     ],
