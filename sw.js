@@ -1,6 +1,7 @@
-/* Service worker: cache-first para funcionar 100 % offline en la calle.
-   Al cambiar protocolos o código, subir CACHE (v2, v3...) para forzar la actualización. */
-const CACHE = "sirena-v5";
+/* Service worker de Sirena.
+   Con conexión: siempre trae la versión más nueva de GitHub y la guarda.
+   Sin conexión: usa la copia guardada. Así la app nunca queda pegada a una versión vieja. */
+const CACHE = "sirena-v6";
 const ARCHIVOS = [
   "./",
   "./index.html",
@@ -18,7 +19,11 @@ const ARCHIVOS = [
 ];
 
 self.addEventListener("install", (e) => {
-  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(ARCHIVOS)).then(() => self.skipWaiting()));
+  e.waitUntil(
+    caches.open(CACHE)
+      .then((c) => c.addAll(ARCHIVOS.map((u) => new Request(u, { cache: "reload" }))))
+      .then(() => self.skipWaiting())
+  );
 });
 
 self.addEventListener("activate", (e) => {
@@ -30,12 +35,19 @@ self.addEventListener("activate", (e) => {
 });
 
 self.addEventListener("fetch", (e) => {
-  if (e.request.method !== "GET") return;
+  if (e.request.method !== "GET" || !e.request.url.startsWith(self.location.origin)) return;
   e.respondWith(
-    caches.match(e.request, { ignoreSearch: true }).then((hit) => hit || fetch(e.request).then((res) => {
-      const copia = res.clone();
-      caches.open(CACHE).then((c) => c.put(e.request, copia));
-      return res;
-    }).catch(() => caches.match("./index.html")))
+    fetch(e.request, { cache: "no-cache" })
+      .then((res) => {
+        if (res.ok) {
+          const copia = res.clone();
+          caches.open(CACHE).then((c) => c.put(e.request, copia));
+        }
+        return res;
+      })
+      .catch(() =>
+        caches.match(e.request, { ignoreSearch: true })
+          .then((hit) => hit || (e.request.mode === "navigate" ? caches.match("./index.html") : undefined))
+      )
   );
 });
