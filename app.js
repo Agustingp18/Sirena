@@ -41,6 +41,52 @@
   const PACIENTE = ["Queda en domicilio", "Se niega atención", "Se niega al traslado", "Ausente", "Óbito"];
   const INTERNACION = ["Sala de guardia", "UTI / UCO", "Sala general", "Neo", "Maternidad"];
 
+  /* ------------------------------------------------------------ signos vitales: normales, técnica y escalas */
+  const NORMALES = { tas: "120", tad: "80", fc: "80", fr: "16", sat: "98", temp: "36,5", gluc: "100", gcs: "15", arm: "No" };
+  const GCS = [
+    { k: "o", t: "Apertura ocular", ops: [[4, "Espontánea"], [3, "A la orden verbal"], [2, "Al estímulo doloroso"], [1, "Ninguna"]] },
+    { k: "v", t: "Respuesta verbal", ops: [[5, "Orientado"], [4, "Confuso"], [3, "Palabras inapropiadas"], [2, "Sonidos incomprensibles"], [1, "Ninguna"]] },
+    { k: "m", t: "Respuesta motora", ops: [[6, "Obedece órdenes"], [5, "Localiza el dolor"], [4, "Retira al dolor"], [3, "Flexión anormal (decorticación)"], [2, "Extensión (descerebración)"], [1, "Ninguna"]] }
+  ];
+  const ARM_OPS = ["No", "Sí · bolsa-válvula-máscara", "Sí · ventilador"];
+  const VINFO = {
+    ta: { t: "Tensión arterial", u: "mmHg", fuente: "MSAL-HTA · PALS",
+      como: ["Paciente sentado o acostado, en reposo 5 min si la situación lo permite.", "Manguito del tamaño correcto: la cámara cubre al menos el 80 % del brazo. Uno chico da valores falsamente altos.", "Brazo apoyado a la altura del corazón, sin ropa que ajuste.", "Inflar 20–30 mmHg por encima de la desaparición del pulso radial y desinflar 2–3 mmHg por segundo.", "Sistólica: primer ruido. Diastólica: cuando desaparecen los ruidos.", "Dolor torácico o sospecha de disección: medir en ambos brazos."],
+      rangos: [["< 90", "TAS: hipotensión", "rojo"], ["< 120/80", "Normal", "verde"], ["≥ 140/90", "Hipertensión", "amarillo"], ["≥ 180/110", "HTA severa", "rojo"]],
+      ped: "Niños: hipotensión si TAS < 70 en lactantes, < 70 + (2 × edad en años) entre 1 y 10 años, y < 90 desde los 10 años." },
+    fc: { t: "Frecuencia cardíaca", u: "lpm", fuente: "ACLS · PALS",
+      como: ["Palpar el pulso radial con dos dedos (carotídeo si no se palpa el radial).", "Contar 30 s y multiplicar por 2. Si es irregular, contar 60 s completos.", "Irregular o > 150 lpm: confirmar con monitor o ECG."],
+      rangos: [["< 50", "Bradicardia", "rojo"], ["60–100", "Normal adulto", "verde"], ["101–120", "Taquicardia", "amarillo"], ["> 120", "Alarma", "rojo"]],
+      pedT: [["Neonato", "100–205"], ["Lactante", "100–180"], ["1–2 años", "98–140"], ["3–5 años", "80–120"], ["6–11 años", "75–118"], ["≥ 12 años", "60–100"]] },
+    fr: { t: "Frecuencia respiratoria", u: "rpm", fuente: "PALS · SAME",
+      como: ["Contar sin avisarle al paciente: si lo nota, cambia el ritmo. Mirar el tórax o apoyar la mano.", "Contar 30 s y multiplicar por 2. En niños o respiración irregular, 60 s.", "Observar además tiraje, aleteo nasal y uso de músculos accesorios."],
+      rangos: [["< 10", "Bradipnea", "rojo"], ["12–20", "Normal adulto", "verde"], ["21–30", "Taquipnea", "amarillo"], ["> 30", "Alarma", "rojo"]],
+      pedT: [["Lactante", "30–53"], ["1–2 años", "22–37"], ["3–5 años", "20–28"], ["6–11 años", "18–25"], ["≥ 12 años", "12–20"]] },
+    sat: { t: "Saturación de O₂", u: "%", fuente: "MSAL-EPOC · SAME",
+      como: ["Dedo tibio y limpio, sin esmalte ni uñas postizas (o lóbulo de la oreja).", "Esperar 30 s a que la onda o el indicador de señal estén estables.", "Comprobar que la FC del oxímetro coincida con el pulso palpado.", "Registrar si es a aire ambiente o con O₂ y cuántos litros."],
+      rangos: [["≥ 95 %", "Normal", "verde"], ["92–94 %", "Vigilar", "amarillo"], ["< 92 %", "Alarma", "rojo"], ["88–92 %", "Objetivo en EPOC", "amarillo"]],
+      alerta: "No es confiable con mala perfusión, frío, temblor o luz intensa. En intoxicación por monóxido de carbono da valores falsamente normales." },
+    temp: { t: "Temperatura axilar", u: "°C", fuente: "SAME",
+      como: ["Axila seca, termómetro en el centro del hueco axilar y brazo pegado al cuerpo.", "Digital: hasta el aviso sonoro. De mercurio: 3–5 min.", "Si se bañó o estuvo muy abrigado, esperar 15–30 min."],
+      rangos: [["< 35", "Hipotermia", "rojo"], ["35,5–37,4", "Normal", "verde"], ["37,5–37,9", "Febrícula", "amarillo"], ["≥ 38", "Fiebre", "amarillo"], ["≥ 40", "Hiperpirexia", "rojo"]] },
+    gluc: { t: "Glucemia capilar", u: "mg/dl", fuente: "SAME · SAE",
+      como: ["Lavar el dedo con agua y secar: el alcohol o restos de azúcar alteran el valor.", "Punzar el costado de la yema, no el centro.", "No exprimir con fuerza: diluye la gota con líquido de los tejidos.", "Si el equipo marca LO o HI, registrarlo así y tratar."],
+      rangos: [["< 70", "Hipoglucemia (< 54 grave)", "rojo"], ["70–140", "Normal casual", "verde"], ["141–250", "Hiperglucemia", "amarillo"], ["> 250", "Buscar cetosis", "rojo"]] },
+    gcs: { t: "Escala de Glasgow", u: "/15", fuente: "PHTLS · SAME",
+      como: ["Evaluar la mejor respuesta en cada componente.", "Estímulo doloroso: presión en el lecho ungueal o en el trapecio.", "Registrar los tres componentes, por ejemplo O3 V4 M6."],
+      rangos: [["13–15", "Leve", "verde"], ["9–12", "Moderado", "amarillo"], ["≤ 8", "Grave: proteger la vía aérea", "rojo"]] },
+    arm: { t: "Asistencia respiratoria mecánica", u: "", fuente: "SAME",
+      como: ["Indicar si el paciente requiere ventilación asistida y con qué dispositivo.", "Con ventilación asistida, registrar también la SatO₂ y la FR que se le administra."],
+      rangos: [] }
+  };
+
+  /* ------------------------------------------------------------ fichas: estado que se conserva entre casos */
+  const KEY_SRI = "sirena.sri.conc";
+  const FS = {
+    sri: { kg: "", c: (() => { try { return JSON.parse(localStorage.getItem(KEY_SRI) || "{}"); } catch (e) { return {}; } })() },
+    embStock: false
+  };
+
   /* ------------------------------------------------------------ estado */
   const S = {};
   function estadoInicial() {
@@ -48,10 +94,12 @@
       codigo: null, motivo: null, texto: "", caseId: null, inicio: null,
       banderas: new Set(), auto: new Set(), off: new Set(), sistemas: new Set(),
       override: false, dx: null,
-      v: { ta: "", fc: "", fr: "", sat: "", temp: "", gluc: "", gcs: "", arm: "" },
+      v: { ta: "", tas: "", tad: "", fc: "", fr: "", sat: "", temp: "", gluc: "", gcs: "", arm: "" },
       dados: {},
       hc: { edad: "", sexo: "", antec: "", cv: "", resp: "", abd: "", neuro: "", desc: new Set(), descOtro: "", obs: "", rcp: false, ecg: false, paciente: "", intern: "" },
-      pals: S.pals || { kg: 20, edad: 6 }
+      gcsComp: null,
+      tec: S.tec || { edad: "", f: new Set() },
+      pals: S.pals || { kg: "", edad: "" }
     });
   }
   estadoInicial();
@@ -201,7 +249,7 @@
     F.push(["Signos vitales", [
       `TA ${v.ta || "—"}`, `FC ${v.fc || "—"}`, `FR ${v.fr || "—"}`, `ARM ${v.arm || "—"}`,
       `SatO₂ ${v.sat ? v.sat + " %" : "—"}`, `T° ax ${v.temp ? v.temp + " °C" : "—"}`,
-      `Glucemia ${v.gluc ? v.gluc + " mg/dl" : "—"}`, `Glasgow ${v.gcs ? v.gcs + "/15" : "—"}`
+      `Glucemia ${v.gluc ? v.gluc + " mg/dl" : "—"}`, `Glasgow ${v.gcs ? v.gcs + "/15" + (S.gcsComp ? ` (O${S.gcsComp.o} V${S.gcsComp.v} M${S.gcsComp.m})` : "") : "—"}`
     ].join(" · ")]);
     F.push(["Cardiovascular", S.hc.cv || "—"]);
     F.push(["Respiratorio", S.hc.resp || "—"]);
@@ -290,11 +338,145 @@
   }
 
   function vitalesHTML() {
-    const f = (k, l, ph, mode = "decimal") => `<label class="vf"><span>${l}</span><input data-v="${k}" inputmode="${mode}" placeholder="${ph}" value="${esc(S.v[k])}" aria-label="${l}"></label>`;
+    const lab = (k, l) => `<button type="button" class="vlab" data-act="vinfo" data-k="${k}" aria-label="${l}: ver cómo se mide">${l}<i aria-hidden="true">i</i></button>`;
+    const inp = (k, l, mode = "numeric") => `<input data-v="${k}" type="text" inputmode="${mode}" ${mode === "numeric" ? 'pattern="[0-9]*"' : ""} autocomplete="off" placeholder="${NORMALES[k]}" value="${esc(S.v[k])}" aria-label="${l}">`;
+    const f = (k, l, mode) => `<div class="vf">${lab(k, l)}${inp(k, l, mode)}</div>`;
+    const gcsTxt = S.gcsComp ? ` <em class="gcomp">O${S.gcsComp.o} V${S.gcsComp.v} M${S.gcsComp.m}</em>` : "";
     return `<div class="vitals">
-      ${f("ta", "TA", "120/80", "text")}${f("fc", "FC", "lpm", "numeric")}${f("fr", "FR", "rpm", "numeric")}${f("sat", "SatO₂", "%", "numeric")}
-      ${f("temp", "T° axilar", "°C")}${f("gluc", "Glucemia", "mg/dl", "numeric")}${f("gcs", "Glasgow", "/15", "numeric")}${f("arm", "ARM", "—", "text")}
-    </div>`;
+      <div class="vf ta">${lab("ta", "TA")}<div class="tain">${inp("tas", "TA sistólica")}<span aria-hidden="true">/</span>${inp("tad", "TA diastólica")}</div></div>
+      ${f("fc", "FC")}${f("fr", "FR")}${f("sat", "SatO₂")}
+      ${f("temp", "T° axilar", "decimal")}${f("gluc", "Glucemia")}
+      <div class="vf">${lab("gcs", "Glasgow")}${inp("gcs", "Glasgow")}${gcsTxt}</div>
+      <div class="vf">${lab("arm", "ARM")}<button type="button" class="armv" data-act="vinfo" data-k="arm">${esc(S.v.arm || "—")}</button></div>
+    </div>
+    <div class="vhelp"><span class="hint">Tocá el nombre de cada signo para ver cómo se mide. Los números grises son los valores normales de un adulto.</span>
+      <button type="button" class="btn sm ghost" data-act="vnormales">Completar vacíos con normales</button></div>`;
+  }
+
+  /* Hoja inferior con técnica, rangos y escalas */
+  function abrirHoja(k) {
+    const d = VINFO[k]; if (!d) return;
+    const rangos = d.rangos.length ? `<div class="rg">${d.rangos.map(([v, l, t]) => `<div class="r ${t}"><b>${esc(v)}</b><span>${esc(l)}</span></div>`).join("")}</div>` : "";
+    const ped = d.pedT ? `<p class="label">Niños (despierto)</p><div class="pedt">${d.pedT.map(([a, v]) => `<div><span>${esc(a)}</span><b>${esc(v)}</b></div>`).join("")}</div>` : (d.ped ? `<p class="hint">${esc(d.ped)}</p>` : "");
+    let extra = "";
+    if (k === "gcs") {
+      const c = S.gcsComp || {};
+      extra = `<div class="gcs">${GCS.map((g) => `<div class="gg"><p class="label">${esc(g.t)}</p>${g.ops.map(([n, t]) => `<button type="button" data-act="gsel" data-g="${g.k}" data-n="${n}" aria-pressed="${c[g.k] === n}"><b>${n}</b><span>${esc(t)}</span></button>`).join("")}</div>`).join("")}</div>
+        <div class="gtotal" id="gtotal">${gcsTotalHTML()}</div>`;
+    }
+    if (k === "fc" || k === "fr") {
+      extra = `<button type="button" class="btn primary contar" data-act="contar" data-k="${k}">Contar ${k === "fc" ? "la frecuencia cardíaca" : "la frecuencia respiratoria"}</button>`;
+    }
+    if (k === "arm") {
+      extra = `<div class="seg">${ARM_OPS.map((o) => `<button type="button" data-act="armsel" data-val="${esc(o)}" aria-pressed="${S.v.arm === o}">${esc(o)}</button>`).join("")}</div>`;
+    }
+    const h = $("#hoja");
+    h.innerHTML = `<div class="hoja-bg" data-act="hojaX"></div>
+      <section class="hoja-p" role="dialog" aria-modal="true" aria-labelledby="hojaT">
+        <header><h2 id="hojaT">${esc(d.t)}${d.u ? ` <small>${esc(d.u)}</small>` : ""}</h2><button type="button" class="back" data-act="hojaX" aria-label="Cerrar">×</button></header>
+        <div class="hoja-b">
+          ${extra}
+          ${rangos}
+          ${d.alerta ? `<div class="alert warn"><p>${esc(d.alerta)}</p></div>` : ""}
+          ${ped}
+          <p class="label">Cómo se mide</p><ol class="steps">${d.como.map((t, i) => `<li><span class="key">${i + 1}</span><span>${esc(t)}</span></li>`).join("")}</ol>
+          <p class="hint">Fuente: ${esc(d.fuente)}</p>
+        </div>
+      </section>`;
+    h.hidden = false;
+    document.body.classList.add("lock");
+    const btn = h.querySelector(".hoja-p .back"); if (btn) btn.focus();
+  }
+  function cerrarHoja() { pararContador(); const h = $("#hoja"); if (h) { h.hidden = true; h.innerHTML = ""; } document.body.classList.remove("lock"); }
+
+  /* ------------------------------------------------------------ contador de FC y FR */
+  const CT = { k: null, dur: 30, t0: 0, taps: [], timer: null, fin: false, audio: null };
+  const CT_TXT = {
+    fc: { t: "Contar FC", u: "lpm", pad: "Tocá en cada latido", ini: "Tocá acá en el primer latido para empezar", rojo: (v) => v < 50 || v > 120, amar: (v) => v > 100 },
+    fr: { t: "Contar FR", u: "rpm", pad: "Tocá en cada respiración (cuando sube el tórax)", ini: "Tocá acá en la primera respiración para empezar", rojo: (v) => v < 10 || v > 30, amar: (v) => v > 20 }
+  };
+  function pararContador() { if (CT.timer) { clearInterval(CT.timer); CT.timer = null; } }
+  function abrirContador(k) {
+    pararContador();
+    Object.assign(CT, { k, t0: 0, taps: [], fin: false });
+    const d = CT_TXT[k];
+    $("#hoja").innerHTML = `<div class="hoja-bg" data-act="hojaX"></div>
+      <section class="hoja-p ct" role="dialog" aria-modal="true" aria-labelledby="hojaT">
+        <header><h2 id="hojaT">${d.t}</h2><button type="button" class="back" data-act="hojaX" aria-label="Cerrar">×</button></header>
+        <div class="hoja-b">
+          <div class="seg">${[15, 30, 60].map((n) => `<button type="button" data-act="ctdur" data-n="${n}" aria-pressed="${CT.dur === n}">${n} s</button>`).join("")}</div>
+          <button type="button" id="pad" class="pad" aria-live="polite"></button>
+          <div id="ctRes"></div>
+          <p class="hint">${k === "fc" ? "Ritmo irregular o FC > 150: contá 60 s y confirmá con monitor." : "Contá sin que el paciente lo note. En niños, 60 s."}</p>
+        </div>
+      </section>`;
+    pintarContador();
+  }
+  function ctCalculo() {
+    const t = CT.taps, n = t.length;
+    if (n < 3) return null;
+    const iv = []; for (let i = 1; i < n; i++) iv.push(t[i] - t[i - 1]);
+    const prom = iv.reduce((a, b) => a + b, 0) / iv.length;
+    const de = Math.sqrt(iv.reduce((a, b) => a + (b - prom) ** 2, 0) / iv.length);
+    return { v: Math.round(60000 / prom), irregular: n >= 5 && de / prom > 0.2 };
+  }
+  function pintarContador() {
+    const d = CT_TXT[CT.k], pad = $("#pad"), res = $("#ctRes");
+    if (!pad) return;
+    const corriendo = CT.t0 && !CT.fin;
+    const resta = corriendo ? Math.max(0, CT.dur - (Date.now() - CT.t0) / 1000) : CT.dur;
+    const c = ctCalculo();
+    pad.className = "pad" + (corriendo ? " on" : "") + (CT.fin ? " fin" : "");
+    pad.innerHTML = CT.fin
+      ? `<b>${c ? c.v : "—"}</b><span>${d.u}</span><small>Terminado · ${CT.taps.length} toques</small>`
+      : corriendo
+        ? `<b>${Math.ceil(resta)}</b><span>segundos</span><small>${d.pad} · ${CT.taps.length}</small>`
+        : `<b>${CT.dur}</b><span>segundos</span><small>${d.ini}</small>`;
+    if (corriendo) pad.style.setProperty("--p", `${(1 - resta / CT.dur) * 100}%`); else pad.style.removeProperty("--p");
+    if (!res) return;
+    const reiniciar = CT.fin ? `<button type="button" class="btn" data-act="ctreset">Volver a contar</button>` : "";
+    if (!c) { res.innerHTML = corriendo ? `<p class="hint">Tocá por lo menos 3 veces para calcular.</p>` : (CT.fin ? `<p class="hint">Hicieron falta al menos 3 toques.</p><div class="row-btns">${reiniciar}</div>` : ""); return; }
+    const tono = d.rojo(c.v) ? "rojo" : d.amar(c.v) ? "amarillo" : "verde";
+    res.innerHTML = `<div class="ctval ${tono}"><span>${CT.fin ? "Resultado" : "Estimado"}</span><b>${c.v} ${d.u}</b>${c.irregular ? `<em>Intervalos irregulares: contá 60 s y confirmá con monitor</em>` : ""}</div>
+      <div class="row-btns">${corriendo ? `<button type="button" class="btn" data-act="ctstop">Terminar ahora</button>` : ""}${reiniciar}<button type="button" class="btn primary" data-act="ctusar" data-v="${c.v}">Usar ${c.v} ${d.u}</button></div>`;
+  }
+  function ctAviso() {
+    try { if (navigator.vibrate) navigator.vibrate([180, 90, 180]); } catch (e) { /* nada */ }
+    try {
+      const a = CT.audio; if (!a) return;
+      const o = a.createOscillator(), g = a.createGain();
+      o.frequency.value = 880; g.gain.value = 0.15; o.connect(g); g.connect(a.destination);
+      o.start(); o.stop(a.currentTime + 0.35);
+    } catch (e) { /* nada */ }
+  }
+  function ctTerminar() { pararContador(); CT.fin = true; ctAviso(); pintarContador(); }
+  function ctToque() {
+    const ahora = Date.now();
+    if (CT.fin) return; // terminado: los toques en la zona de conteo no hacen nada
+    if (!CT.t0) {
+      try { CT.audio = CT.audio || new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { CT.audio = null; }
+      CT.t0 = ahora; CT.taps = [ahora];
+      CT.timer = setInterval(() => { if ((Date.now() - CT.t0) / 1000 >= CT.dur) ctTerminar(); else pintarContador(); }, 200);
+    } else CT.taps.push(ahora);
+    try { if (navigator.vibrate) navigator.vibrate(15); } catch (e) { /* nada */ }
+    pintarContador();
+  }
+  document.addEventListener("pointerdown", (e) => {
+    if (e.target.closest && e.target.closest("#pad")) { e.preventDefault(); ctToque(); }
+  });
+  function gcsTotalHTML() {
+    const c = S.gcsComp || {};
+    const listo = c.o && c.v && c.m;
+    const tot = listo ? c.o + c.v + c.m : null;
+    const tono = !listo ? "" : tot <= 8 ? "rojo" : tot <= 12 ? "amarillo" : "verde";
+    return `<div class="gsum ${tono}"><span>Total</span><b>${listo ? tot : "—"}</b><span>${listo ? `O${c.o} V${c.v} M${c.m}` : "Elegí los tres componentes"}</span></div>
+      <button type="button" class="btn primary" data-act="gusar" ${listo ? "" : "disabled"}>${listo ? `Usar Glasgow ${tot}` : "Usar"}</button>`;
+  }
+  function vitalCambio() {
+    const t = $$("input[data-v]");
+    t.forEach((i) => { if (document.activeElement !== i) i.value = S.v[i.dataset.v] || ""; });
+    const arm = $(".armv"); if (arm) arm.textContent = S.v.arm || "—";
+    if (actual() === "triage") { aplicarVitales(); refrescarTriage(); } else refrescarHC();
   }
 
   function flagHTML(b) {
@@ -337,8 +519,7 @@
       </section>
       <button class="reglink" data-act="go" data-to="registro"><span>Registro de atenciones</span><b class="chip ${REG.length ? "amarillo" : "none"}">${REG.length} pendiente${REG.length === 1 ? "" : "s"}</b></button>
       <p class="disclaimer">${esc(META.estado)}. ${esc(META.poblacion)} La decisión final es del médico actuante. Emergencias: ${esc(META.emergencias)}.</p>
-    </main>
-    ${bar(`<button class="btn" data-act="go" data-to="soporte">RCP · Soporte vital</button><button class="btn" data-act="go" data-to="maletin">Maletín</button>`)}`;
+    </main>`;
   };
 
   V.triage = () => {
@@ -377,7 +558,7 @@
           <div class="row-btns"><button class="btn sm" data-act="override0">Cancelar</button><button class="btn sm primary" data-act="override2">Confirmo</button></div></div></div>
       </section>
     </main>
-    ${bar(`<button class="btn" data-act="nuevo">Nuevo caso</button><button class="btn primary" data-act="go" data-to="hc">Historia clínica</button>`)}`;
+    ${bar(`<button class="btn" data-act="nuevo">Nueva HC</button><button class="btn primary" data-act="go" data-to="hc">Historia clínica</button>`)}`;
   };
 
   V.domicilio = () => {
@@ -421,7 +602,7 @@
       </div></article>`;
     }
     html += `</main>`;
-    html += bar(`<button class="btn" data-act="nuevo">Nuevo caso</button><button class="btn primary" data-act="go" data-to="hc"${dx || !p.diagnosticos.length ? "" : " disabled"}>Historia clínica</button>`);
+    html += bar(`<button class="btn" data-act="nuevo">Nueva HC</button><button class="btn primary" data-act="go" data-to="hc"${dx || !p.diagnosticos.length ? "" : " disabled"}>Historia clínica</button>`);
     return html;
   };
 
@@ -448,7 +629,7 @@
       <section><p class="label">Para transcribir a la planilla</p><div class="sheet" id="hcPrev">${previewHC()}</div>
         <textarea id="hcPlano" class="hc" hidden aria-label="Texto plano de la historia clínica">${esc(textoHC())}</textarea></section>
     </main>
-    ${bar(`<button class="btn" data-act="copiar">Copiar HC</button><button class="btn primary" data-act="guardarReg">Guardar en registro</button>`)}`;
+    ${bar(`<div class="bar3"><button class="btn" data-act="copiar">Copiar HC</button><button class="btn" data-act="guardarReg">Guardar en registro</button><button class="btn primary" data-act="nuevo">Nueva HC</button></div>`)}`;
   };
   function previewHC() {
     return camposHC().map(([k, v]) => `<div class="sr"><span class="sk">${esc(k)}</span><span class="sv2">${esc(v)}</span></div>`).join("");
@@ -476,7 +657,7 @@
   V.maletin = () => {
     const grupos = [...new Set(BASE.map((d) => d.grupo))];
     const stock = BASE.filter((d) => enStock(d.id)).length;
-    return `${header("Maletín", { chip: false })}
+    return `${header("Maletín", { chip: false, back: false })}
     <main class="wrap">
       <p class="hint">${stock} de ${BASE.length} fármacos del catálogo en stock${M.propios.length ? ` · ${M.propios.length} agregado${M.propios.length > 1 ? "s" : ""} por vos` : ""}. Lo que apagues no se recomienda en domicilio: la app busca una alternativa o lo marca como faltante.</p>
       <section>
@@ -501,8 +682,7 @@
         <button class="btn ghost" data-act="reset1" style="width:100%">Restaurar maletín estándar</button>
         <div id="resetc" hidden style="margin-top:8px" class="alert warn"><p class="k">¿Restaurar?</p><p>Se pierden los cambios y los fármacos agregados.</p><div class="row-btns"><button class="btn sm" data-act="reset0">Cancelar</button><button class="btn sm danger" data-act="reset2">Restaurar</button></div></div>
       </section>
-    </main>
-    ${bar(`<button class="btn" data-act="back">Volver</button>`)}`;
+    </main>`;
   };
 
   V.soporte = () => {
@@ -513,7 +693,7 @@
     };
     const tiles = (d) => `<div class="tiles">${d.map((t) => `<div class="tile"><b>${esc(t.v)}</b><span>${esc(t.l)}</span></div>`).join("")}</div>`;
     const pasos = (d) => `<ol class="steps">${d.map((s) => `<li><span class="key">${esc(s.k)}</span><span>${esc(s.t)}</span></li>`).join("")}</ol>`;
-    return `${header("RCP · Soporte vital", { chip: false })}
+    return `${header("RCP · Soporte vital", { chip: false, back: false })}
     <main class="wrap">
       ${SV.map((c) => `<details class="sv"${c.id === "rcp_adulto" && S.codigo === "rojo" ? " open" : ""}>
         <summary><span class="dot ${c.tono}"></span>${esc(c.titulo)}<span class="src">${esc(c.fuente)}</span></summary>
@@ -525,18 +705,153 @@
           ${c.farmacos && c.farmacos.length ? `<div><p class="label">Fármacos</p>${c.farmacos.map(farm).join("")}</div>` : ""}
           ${c.post ? `<div class="post"><p class="label">${esc(c.post.titulo)}</p>${tiles(c.post.datos)}${pasos(c.post.pasos)}</div>` : ""}
           ${c.pediatrico ? `<div><p class="label">Calculadora por peso</p>
-            <div class="calc"><label for="kg">Peso (kg)<input id="kg" type="number" inputmode="decimal" min="1" max="80" step="0.5" value="${S.pals.kg}"></label>
-            <label for="edad">Edad (años)<input id="edad" type="number" inputmode="numeric" min="0" max="18" value="${S.pals.edad}"></label></div>
+            <div class="calc"><label for="kg">Peso (kg)<input id="kg" type="number" inputmode="decimal" min="1" max="80" step="0.5" value="${esc(S.pals.kg)}" placeholder="kg"></label>
+            <label for="edad">Edad (años)<input id="edad" type="number" inputmode="numeric" min="0" max="18" value="${esc(S.pals.edad)}" placeholder="años"></label></div>
             <div id="palsOut" class="tiles pals">${palsOut()}</div></div>` : ""}
         </div></details>`).join("")}
       <p class="disclaimer">Verificar contra la edición vigente de cada curso y el protocolo local. Dosis pediátricas sin redondeo a presentación: revisar antes de cargar.</p>
-    </main>
-    ${bar(`<button class="btn" data-act="back">Volver</button>`)}`;
+    </main>`;
   };
+
+  /* ------------------------------------------------------------ fichas */
+  const FIC = window.FICHAS;
+  const stockChip = (f, sinF = "Para indicar") => f ? (enStock(f) ? `<span class="chip verde">En maletín</span>` : `<span class="chip rojo">Sin stock</span>`) : `<span class="chip none">${sinF}</span>`;
+  const rango = (a, b, u) => (Math.abs(a - b) < 1e-9 ? `${fmt(a)} ${u}` : `${fmt(a)}–${fmt(b)} ${u}`);
+  const minus = (t) => t.charAt(0).toLowerCase() + t.slice(1);
+
+  V.fichas = () => `${header("Fichas", { chip: false, back: false })}
+    <main class="wrap">
+      <p class="hint">Consulta rápida para tener a mano. Las dosis se cruzan con tu maletín.</p>
+      <div class="fcards">${FIC.map((f) => `<button class="fcard ${f.tono}" data-act="go" data-to="f-${f.id}"><b>${esc(f.titulo)}</b><span>${esc(f.sub)}</span></button>`).join("")}</div>
+      <p class="disclaimer">Borrador para validar con la Dirección Médica. Contenido propio basado en las fuentes citadas en cada ficha.</p>
+    </main>`;
+
+  function fichaActual() { const id = location.hash.replace("#f-", ""); return FIC.find((f) => f.id === id); }
+  V.ficha = () => {
+    const f = fichaActual();
+    const cuerpo = { ped: fichaPed, sri: fichaSri, pecarn: fichaTec, pree: fichaPree, emb: fichaEmb }[f.tipo]();
+    return `${header(f.titulo, { chip: false })}<main class="wrap ficha ${f.tono}">${cuerpo}</main>`;
+  };
+
+  function fichaPed() {
+    const D = window.FICHA_PED;
+    return `<div class="calc"><label for="kg">Peso (kg)<input id="kg" type="text" inputmode="decimal" autocomplete="off" value="${esc(S.pals.kg)}" placeholder="kg"></label>
+      <label for="edad">Edad (años)<input id="edad" type="text" inputmode="decimal" autocomplete="off" value="${esc(S.pals.edad)}" placeholder="años"></label></div>
+      <p class="hint">Edad en años: 6 meses = 0,5. Si no sabés el peso y tiene entre 1 y 10 años: (edad × 2) + 8.</p>
+      <div id="pedOut">${pedOut()}</div>
+      <p class="disclaimer">${esc(D.nota)} Fuente: ${esc(D.fuente)}.</p>`;
+  }
+  function pedOut() {
+    const D = window.FICHA_PED;
+    const kg = num(S.pals.kg), edad = num(S.pals.edad);
+    if (!kg || kg <= 0) return `<div class="alert warn"><p>Ingresá el peso para ver las dosis.</p></div>`;
+    const item = (it) => {
+      let dosis = "", ml = [];
+      if (it.calc === "puffs") { const n = Math.min(10, Math.max(2, Math.ceil(kg / 3))); dosis = `${n} disparos`; ml = ["100 mcg por disparo"]; }
+      else if (it.calc === "ipra") { const big = kg >= 20; dosis = big ? "0,5 mg" : "0,25 mg"; ml = [big ? "2 ml de solución 0,25 mg/ml" : "1 ml de solución 0,25 mg/ml"]; }
+      else if (it.calc === "adrNeb") { const v = Math.min(0.5 * kg, 5); dosis = `${fmt(v)} ml`; ml = ["de adrenalina 1:1000 sin diluir (0,5 ml/kg, máx. 5 ml)"]; }
+      else if (it.calc === "adrIM") { const mx = kg >= 50 ? 0.5 : 0.3; const v = Math.min(0.01 * kg, mx); dosis = `${fmt(v)} mg`; ml = [`${fmt(v)} ml de adrenalina 1:1000 · máx. ${fmt(mx)} mg`]; }
+      else if (it.calc === "dextrosa") { dosis = `${fmt(0.5 * kg)} g`; ml = [`${fmt(5 * kg)} ml de dextrosa 10 %`, `${fmt(2 * kg)} ml de dextrosa 25 % (preferir al 10 % en menores de 1 año)`]; }
+      else if (it.calc === "sf") { dosis = `${fmt(20 * kg)} ml`; ml = [`20 ml/kg · si se sospecha causa cardíaca: ${fmt(10 * kg)} ml (10 ml/kg)`]; }
+      else {
+        let lo = it.mgkg[0] * kg, hi = it.mgkg[1] * kg;
+        if (it.min) { lo = Math.max(lo, it.min); hi = Math.max(hi, it.min); }
+        if (it.max) { lo = Math.min(lo, it.max); hi = Math.min(hi, it.max); }
+        dosis = rango(lo, hi, "mg");
+        ml = (it.pres || []).map((p) => `${rango(lo / p.c, hi / p.c, "ml")} de ${minus(p.t)}`);
+        if (it.max && it.mgkg[1] * kg > it.max) ml.push(`Tope por dosis: ${fmt(it.max)} mg`);
+      }
+      const bloqueado = it.edadMin && edad !== null && edad < it.edadMin;
+      return `<div class="pd${bloqueado ? " off" : ""}">
+        <div class="pdh"><b>${esc(it.n)}</b>${stockChip(it.f)}</div>
+        ${bloqueado ? `<p class="pdx">No indicado a esta edad. ${esc(it.edadTxt)}.</p>` : `<div class="pdd"><span class="big">${esc(dosis)}</span><span>${esc(it.via)}</span></div>
+        ${ml.map((m) => `<span class="pdm">${esc(m)}</span>`).join("")}
+        <span class="pdf">${esc(it.frec)}</span>
+        ${it.edadTxt ? `<span class="pdn">${esc(it.edadTxt)}.</span>` : ""}
+        ${it.nota ? `<span class="pdn">${esc(it.nota)}</span>` : ""}`}
+      </div>`;
+    };
+    return D.grupos.map((g) => `<section><p class="label">${esc(g.t)}</p><div class="pdg">${g.items.map(item).join("")}</div></section>`).join("");
+  }
+
+  function fichaSri() {
+    const D = window.FICHA_SRI;
+    return `<div class="calc one"><label for="sk">Peso (kg)<input id="sk" type="text" inputmode="decimal" autocomplete="off" value="${esc(FS.sri.kg)}" placeholder="70"></label></div>
+      <ol class="steps">${D.pasos.map((p) => `<li><span class="key">${esc(p.k)}</span><span>${esc(p.t)}</span></li>`).join("")}</ol>
+      <div id="sriOut">${sriOut()}</div>
+      <div class="alert ok"><p>${esc(D.tubo)}</p></div>
+      <div class="alert warn"><p>${esc(D.post)}</p></div>
+      <p class="disclaimer">La concentración de cada droga se puede corregir según el envase que tengas; queda guardada en el teléfono. Fuente: ${esc(D.fuente)}.</p>`;
+  }
+  function sriOut() {
+    const D = window.FICHA_SRI;
+    const kg = num(FS.sri.kg);
+    return D.grupos.map((g) => `<section><p class="label">${esc(g.t)}</p><div class="pdg">${g.items.map((it) => {
+      const c = num(FS.sri.c[it.id]) || it.c;
+      const porKg = `${fmt(it.dkg[0])}${it.dkg[0] !== it.dkg[1] ? "–" + fmt(it.dkg[1]) : ""} ${it.u}/kg`;
+      let d = `<span class="pdm">${porKg}</span>`;
+      if (kg) { const lo = it.dkg[0] * kg, hi = it.dkg[1] * kg; d = `<div class="pdd"><span class="big">${rango(lo, hi, it.u)}</span><span>${rango(lo / c, hi / c, "ml")}</span></div><span class="pdm">${porKg}</span>`; }
+      return `<div class="pd"><div class="pdh"><b>${esc(it.n)}</b>${stockChip(it.id)}</div>${d}
+        <label class="conc">Concentración <input data-conc="${it.id}" type="text" inputmode="decimal" value="${esc(FS.sri.c[it.id] || "")}" placeholder="${fmt(it.c)}"> ${esc(it.cu)}</label>
+        <span class="pdn">${esc(it.nota)}</span></div>`;
+    }).join("")}</div></section>`).join("") + (kg ? "" : `<p class="hint">Cargá el peso para ver las dosis en mg y ml.</p>`);
+  }
+
+  function fichaTec() {
+    const D = window.FICHA_TEC;
+    return `<p class="hint">${esc(D.aplica)}</p>
+      <div class="seg big">${[["menor2", "Menor de 2 años"], ["mayor2", "2 años o más"]].map(([k, l]) => `<button data-act="tecEdad" data-val="${k}" aria-pressed="${S.tec.edad === k}">${l}</button>`).join("")}</div>
+      <div id="tecOut">${tecOut()}</div>
+      <p class="hint">${esc(D.mecanismo)}</p>
+      <p class="disclaimer">Fuente: ${esc(D.fuente)}.</p>`;
+  }
+  function tecOut() {
+    const D = window.FICHA_TEC;
+    if (!S.tec.edad) return `<div class="alert warn"><p>Elegí la edad del niño.</p></div>`;
+    const g = D[S.tec.edad];
+    const fl = (arr, nivel, pre) => arr.map((t, i) => { const id = `${pre}${i}`; return `<label class="flag ${nivel}"><input type="checkbox" data-act="tecf" data-id="${id}" ${S.tec.f.has(id) ? "checked" : ""}><span class="box" aria-hidden="true"></span><span class="ft">${esc(t)}</span></label>`; }).join("");
+    const alto = g.alto.some((_, i) => S.tec.f.has(`a${i}`)), medio = g.medio.some((_, i) => S.tec.f.has(`m${i}`));
+    const r = D.resultado[alto ? "alto" : medio ? "medio" : "bajo"];
+    return `<section><p class="label">Riesgo alto</p><div class="group">${fl(g.alto, "rojo", "a")}</div></section>
+      <section><p class="label">Riesgo intermedio</p><div class="group">${fl(g.medio, "amarillo", "m")}</div></section>
+      <div class="res ${r.tono}" role="status"><b>${esc(r.t)}</b><span>${esc(r.d)}</span></div>
+      ${!alto && !medio ? `<section><p class="label">Pautas de alarma para la familia</p><ul class="list ok">${D.pautas.map((t) => `<li>${esc(t)}</li>`).join("")}</ul></section>` : ""}`;
+  }
+
+  function fichaPree() {
+    const D = window.FICHA_PREE;
+    return `<p>${esc(D.def)}</p>
+      <section><p class="label">Signos de gravedad</p><ul class="list rojo">${D.graves.map((t) => `<li>${esc(t)}</li>`).join("")}</ul></section>
+      <section><p class="label">Qué hacer</p><ol class="steps">${D.conducta.map((t, i) => `<li><span class="key">${i + 1}</span><span>${esc(t)}</span></li>`).join("")}</ol></section>
+      <section><p class="label lchip">Sulfato de magnesio ${stockChip("sulfato_mg")}</p><div class="pdg">${D.mg.map((m) => `<div class="pd"><b>${esc(m.k)}</b><span>${esc(m.t)}</span></div>`).join("")}</div></section>
+      <div class="alert warn"><p>${esc(D.toxicidad)}</p><p class="lchip">Gluconato de calcio ${stockChip("gluconato_ca")}</p></div>
+      <section><p class="label">Antihipertensivo si TA ≥ 160/110</p><div class="pdg">${D.antiHTA.map((a) => `<div class="pd"><div class="pdh"><span>${esc(a.t)}</span>${stockChip(a.f)}</div></div>`).join("")}</div>
+        <p class="hint" style="margin-top:8px">${esc(D.objetivo)}</p></section>
+      <div class="alert"><p><b>${esc(D.nunca)}</b></p></div>
+      <p class="disclaimer">Fuente: ${esc(D.fuente)}.</p>`;
+  }
+
+  function fichaEmb() {
+    const D = window.FICHA_EMB;
+    return `<p class="hint">${esc(D.aviso)}</p>
+      <label class="tog"><span>Mostrar solo lo que tengo en el maletín</span><span class="switch"><input type="checkbox" data-act="embStock" ${FS.embStock ? "checked" : ""}><span></span></span></label>
+      <div id="embOut">${embOut()}</div>
+      <p class="disclaimer">Fuente: ${esc(D.fuente)}.</p>`;
+  }
+  function embOut() {
+    const D = window.FICHA_EMB;
+    const lista = BASE.filter((d) => D.items[d.id] && (!FS.embStock || enStock(d.id)));
+    const g = [["si", "Se puede usar", "verde"], ["prec", "Con precaución", "amarillo"], ["no", "Evitar o contraindicado", "rojo"]];
+    return g.map(([k, t, tono]) => {
+      const xs = lista.filter((d) => D.items[d.id][0] === k);
+      if (!xs.length) return "";
+      return `<section><p class="label"><i class="sq ${tono}"></i> ${t} · ${xs.length}</p><ul class="cond">${xs.map((d) => `<li class="${tono}"><b>${esc(d.nombre)}</b><span>${esc(D.items[d.id][1])}</span></li>`).join("")}</ul></section>`;
+    }).join("");
+  }
 
   function palsOut() {
     const kg = Number(S.pals.kg), edad = Number(S.pals.edad);
-    if (!kg || kg <= 0) return `<p class="hint">Ingresá el peso.</p>`;
+    if (!kg || kg <= 0) return `<p class="hint">Ingresá el peso del niño para calcular las dosis. Si no lo sabés y tiene entre 1 y 10 años: (edad × 2) + 8.</p>`;
     return PALS.map((d) => {
       const r = d.calc(kg, edad);
       const sin = d.f && !enStock(d.f);
@@ -547,8 +862,11 @@
   /* ------------------------------------------------------------ navegación */
   let prev = "inicio";
   function go(screen) { if (location.hash !== "#" + screen) location.hash = screen; else render(); }
+  const TAB_DE = { inicio: "atencion", triage: "atencion", derivacion: "atencion", domicilio: "atencion", hc: "atencion", registro: "atencion", soporte: "rcp", fichas: "fichas", ficha: "fichas", maletin: "maletin" };
+  let ultimaAtencion = "inicio";
   function actual() {
     const h = location.hash.replace("#", "") || "inicio";
+    if (h.startsWith("f-")) return fichaActual() ? "ficha" : "fichas";
     if (!V[h]) return "inicio";
     if (["triage", "derivacion", "domicilio", "hc"].includes(h) && !protocolo()) return "inicio";
     if (h === "derivacion" && !tildadas("rojo").length) return "triage";
@@ -559,12 +877,16 @@
     const y = window.scrollY;
     if (s === "domicilio" || s === "derivacion") S.flujo = s;
     document.getElementById("app").innerHTML = V[s]();
+    if (TAB_DE[s] === "atencion") ultimaAtencion = s === "inicio" ? "inicio" : (location.hash.replace("#", "") || "inicio");
+    $$(".tabs button").forEach((b) => b.setAttribute("aria-current", b.dataset.tab === TAB_DE[s] ? "page" : "false"));
+    document.body.classList.toggle("conbarra", !!document.querySelector("#app .bar"));
     if (["inicio", "triage", "derivacion", "domicilio"].includes(s)) prev = s;
     window.scrollTo(0, keepScroll ? y : 0);
   }
   function back() {
     const s = actual();
-    if (s === "maletin" || s === "soporte" || s === "registro") return go(prev === s ? "inicio" : prev);
+    if (s === "ficha") return go("fichas");
+    if (s === "registro") return go(prev === s ? "inicio" : prev);
     if (s === "hc") return go(S.flujo || "triage");
     if (s === "domicilio") return go(S.override ? "derivacion" : "triage");
     if (s === "derivacion") return go("triage");
@@ -594,7 +916,7 @@
     const b = e.target.closest("[data-act]");
     if (!b) return;
     const a = b.dataset.act;
-    if (a === "flag" || a === "stock" || a === "stockP" || a === "dado") return;
+    if (a === "flag" || a === "stock" || a === "stockP" || a === "dado" || a === "tecf" || a === "embStock") return;
     switch (a) {
       case "back": back(); break;
       case "go": go(b.dataset.to); break;
@@ -606,6 +928,46 @@
           sx.banderas.forEach((f) => S.banderas.delete(f.id));
         } else S.sistemas.add(id);
         render(true); break;
+      }
+      case "tab": {
+        const t = b.dataset.tab;
+        const destino = { atencion: ultimaAtencion, rcp: "soporte", fichas: "fichas", maletin: "maletin" }[t];
+        if (TAB_DE[actual()] === t && t !== "atencion") { if (actual() === "ficha") go("fichas"); else window.scrollTo(0, 0); }
+        else go(destino);
+        break;
+      }
+      case "tecEdad": S.tec.edad = b.dataset.val; S.tec.f.clear(); $$("[data-act=tecEdad]").forEach((x) => x.setAttribute("aria-pressed", x === b)); $("#tecOut").innerHTML = tecOut(); break;
+      case "vinfo": abrirHoja(b.dataset.k); break;
+      case "hojaX": cerrarHoja(); break;
+      case "gsel": {
+        S.gcsComp = Object.assign({}, S.gcsComp || {}, { [b.dataset.g]: Number(b.dataset.n) });
+        $$(`button[data-act=gsel][data-g="${b.dataset.g}"]`).forEach((x) => x.setAttribute("aria-pressed", x === b));
+        $("#gtotal").innerHTML = gcsTotalHTML(); break;
+      }
+      case "gusar": {
+        const c = S.gcsComp; S.v.gcs = String(c.o + c.v + c.m);
+        cerrarHoja();
+        const box = $("input[data-v=gcs]");
+        if (box) { box.value = S.v.gcs; const em = box.parentElement.querySelector(".gcomp"); if (em) em.textContent = `O${c.o} V${c.v} M${c.m}`; else box.insertAdjacentHTML("afterend", ` <em class="gcomp">O${c.o} V${c.v} M${c.m}</em>`); }
+        vitalCambio(); break;
+      }
+      case "contar": abrirContador(b.dataset.k); break;
+      case "ctdur": if (!CT.t0 || CT.fin) { CT.dur = Number(b.dataset.n); Object.assign(CT, { t0: 0, taps: [], fin: false }); $$("[data-act=ctdur]").forEach((x) => x.setAttribute("aria-pressed", x === b)); pintarContador(); } break;
+      case "ctstop": ctTerminar(); break;
+      case "ctreset": pararContador(); Object.assign(CT, { t0: 0, taps: [], fin: false }); pintarContador(); break;
+      case "ctusar": {
+        const k = CT.k; S.v[k] = b.dataset.v; cerrarHoja();
+        const inp = $(`input[data-v="${k}"]`); if (inp) inp.value = S.v[k];
+        vitalCambio(); toast(`${k === "fc" ? "FC" : "FR"} ${S.v[k]} cargada`); break;
+      }
+      case "armsel": S.v.arm = b.dataset.val; cerrarHoja(); vitalCambio(); break;
+      case "vnormales": {
+        const ed = num(S.hc.edad);
+        if (ed !== null && ed < 15) { toast("En niños los valores normales cambian: cargá los medidos"); break; }
+        let n = 0;
+        Object.entries(NORMALES).forEach(([k, val]) => { if (!S.v[k]) { S.v[k] = val; n++; } });
+        if (S.v.tas && S.v.tad) S.v.ta = `${S.v.tas}/${S.v.tad}`;
+        vitalCambio(); toast(n ? `${n} valor${n > 1 ? "es" : ""} completado${n > 1 ? "s" : ""} con normales` : "No había campos vacíos"); break;
       }
       case "codigo": S.codigo = S.codigo === b.dataset.c ? null : b.dataset.c; render(); break;
       case "motivo": S.caseId = S.caseId || "A" + Date.now().toString(36).toUpperCase(); S.inicio = S.inicio || Date.now(); S.motivo = b.dataset.id; S.sistemas.clear(); S.banderas.clear(); S.auto.clear(); S.off.clear(); S.override = false; S.dx = null; aplicarVitales(); go("triage"); break;
@@ -651,7 +1013,10 @@
       if (t.checked) S.banderas.add(id);
       else { S.banderas.delete(id); if (S.auto.has(id)) { S.auto.delete(id); S.off.add(id); } }
       refrescarTriage();
-    } else if (a === "stock") { M.estado[t.dataset.id] = t.checked; saveMaletin(); }
+    } else if (a === "tecf") { t.checked ? S.tec.f.add(t.dataset.id) : S.tec.f.delete(t.dataset.id); const y = window.scrollY; $("#tecOut").innerHTML = tecOut(); window.scrollTo(0, y); }
+    else if (a === "embStock") { FS.embStock = t.checked; $("#embOut").innerHTML = embOut(); }
+    else if (a === "dado") { S.dados[t.dataset.key] = t.checked; }
+    else if (a === "stock") { M.estado[t.dataset.id] = t.checked; saveMaletin(); }
     else if (a === "stockP") { const d = M.propios.find((x) => x.id === t.dataset.id); if (d) d.enStock = t.checked; saveMaletin(); }
   });
 
@@ -659,12 +1024,32 @@
     const t = e.target;
     if (t.id === "q") { S.texto = t.value; $("#res").innerHTML = resultados(); }
     else if (t.dataset.v) {
-      S.v[t.dataset.v] = t.value;
+      const k = t.dataset.v;
+      let val = t.value;
+      if (k !== "temp") val = val.replace(/[^0-9]/g, "");
+      else val = val.replace(/[^0-9.,]/g, "");
+      if (val !== t.value) t.value = val;
+      S.v[k] = val;
+      if (k === "tas" || k === "tad") S.v.ta = S.v.tas || S.v.tad ? `${S.v.tas}/${S.v.tad}` : "";
+      if (k === "tas" && val.length === 3) { const d = $("input[data-v=tad]"); if (d && !d.value) d.focus(); }
+      if (k === "gcs") { S.gcsComp = null; const em = t.parentElement.querySelector(".gcomp"); if (em) em.remove(); }
       if (actual() === "triage") { aplicarVitales(); refrescarTriage(); } else refrescarHC();
     }
     else if (t.dataset.hc) { S.hc[t.dataset.hc] = t.value; refrescarHC(); }
     else if (t.id === "sheetUrl") { try { localStorage.setItem(KEY_SHEET, t.value.trim()); } catch (err) { /* nada */ } }
-    else if (t.id === "kg" || t.id === "edad") { S.pals[t.id] = t.value; $("#palsOut").innerHTML = palsOut(); }
+    else if (t.id === "kg" || t.id === "edad") {
+      S.pals[t.id] = t.value;
+      const po = $("#palsOut"); if (po) po.innerHTML = palsOut();
+      const pe = $("#pedOut"); if (pe) pe.innerHTML = pedOut();
+    }
+    else if (t.id === "sk") { FS.sri.kg = t.value; $("#sriOut").innerHTML = sriOut(); }
+    else if (t.dataset.conc) {
+      FS.sri.c[t.dataset.conc] = t.value.trim();
+      try { localStorage.setItem(KEY_SRI, JSON.stringify(FS.sri.c)); } catch (err) { /* nada */ }
+      const id = t.dataset.conc, pos = t.selectionStart;
+      $("#sriOut").innerHTML = sriOut();
+      const n = $(`input[data-conc="${id}"]`); if (n) { n.focus(); try { n.setSelectionRange(pos, pos); } catch (err) { /* nada */ } }
+    }
   });
 
   document.addEventListener("submit", (e) => {
@@ -686,10 +1071,24 @@
     }
   });
 
-  window.addEventListener("hashchange", () => render());
+  window.addEventListener("hashchange", () => { cerrarHoja(); render(); });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") cerrarHoja(); });
 
   /* ------------------------------------------------------------ arranque */
   try { const t = localStorage.getItem(KEY_THEME); if (t) document.documentElement.setAttribute("data-theme", t); } catch (e) { /* nada */ }
+  if (!document.querySelector(".tabs")) {
+    const ic = {
+      atencion: '<path d="M9 3h6v3H9z"/><path d="M8 4.5H5.5v16h13v-16H16"/><path d="M12 10v6M9 13h6"/>',
+      rcp: '<path d="M12 20.5s-7.5-4.6-7.5-10.4A4.1 4.1 0 0 1 12 7.3a4.1 4.1 0 0 1 7.5 2.8c0 5.8-7.5 10.4-7.5 10.4z"/><path d="M4 13h3.5l1.8-3 2.6 5.5 1.8-2.5H20"/>',
+      fichas: '<rect x="3.5" y="7.5" width="13" height="13" rx="2"/><path d="M7.5 4h11a2 2 0 0 1 2 2v11"/><path d="M7 12h6M7 15.5h4"/>',
+      maletin: '<rect x="3" y="7" width="18" height="13" rx="2"/><path d="M9 7V5.5A1.5 1.5 0 0 1 10.5 4h3A1.5 1.5 0 0 1 15 5.5V7"/><path d="M12 10.5v6M9 13.5h6"/>'
+    };
+    const nav = document.createElement("nav");
+    nav.className = "tabs"; nav.setAttribute("aria-label", "Secciones");
+    nav.innerHTML = `<div class="tabs-in">${[["atencion", "Atención"], ["rcp", "RCP"], ["fichas", "Fichas"], ["maletin", "Maletín"]].map(([k, l]) => `<button data-act="tab" data-tab="${k}"><svg viewBox="0 0 24 24" aria-hidden="true">${ic[k]}</svg><span>${l}</span></button>`).join("")}</div>`;
+    document.body.appendChild(nav);
+  }
+  if (!document.getElementById("hoja")) { const h = document.createElement("div"); h.id = "hoja"; h.hidden = true; document.body.appendChild(h); }
   render();
   if ("serviceWorker" in navigator && /^https?:/.test(location.protocol) && document.querySelector('link[rel="manifest"]')) {
     window.addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));
