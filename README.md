@@ -22,6 +22,8 @@ sirena/   (todos los archivos en la raíz, sin carpetas: así se suben fácil de
 ├── sw.js · manifest.webmanifest · icon-192.png · icon-512.png · icon-maskable-512.png
 ├── protocolos.js            10 motivos base: banderas, soporte, diagnósticos, tratamientos
 ├── protocolos_ampliados.js  20 motivos frecuentes más
+├── protocolos_pediatricos.js 5 motivos pediátricos con dosis por peso
+├── apps_script.gs           Script para la planilla (envío automático; no lo usa la app)
 ├── manejo_general.js        Banderas por aparato y tratamiento sintomático
 ├── maletin.js               Catálogo editable del maletín
 ├── soporte_vital.js         BLS · ACLS · PALS · PHTLS + calculadora pediátrica
@@ -39,7 +41,7 @@ sirena/   (todos los archivos en la raíz, sin carpetas: así se suben fácil de
 
 GitHub Pages es gratis con repositorio público. Para usarlo con un repositorio privado hace falta un plan pago (Pro o superior). El repositorio no contiene datos de pacientes ni el link de la planilla de registro.
 
-**Actualizar la app**: subir los archivos modificados al repositorio (*Add file → Upload files*, reemplazan a los anteriores) y cambiar en `sw.js` la línea `const CACHE = "sirena-v5"` por el número siguiente. Los teléfonos descargan la versión nueva la próxima vez que abren la app con conexión (se ve al abrirla por segunda vez).
+**Actualizar la app**: subir los archivos modificados al repositorio (*Add file → Upload files*, reemplazan a los anteriores), cambiar en `sw.js` el número de `const CACHE = "sirena-vN"` y en `version.json` la versión. Los teléfonos muestran el aviso de versión nueva al abrir la app con conexión.
 
 ## Instalar en el teléfono
 
@@ -58,7 +60,7 @@ Primera vez en el teléfono: cargar el maletín real (pantalla Maletín) y pegar
 
 - **Atención**: código, motivo, banderas, domicilio o traslado, historia clínica y registro.
 - **RCP**: soporte vital (BLS, ACLS, PALS, PHTLS).
-- **Fichas**: consulta rápida. Medicación pediátrica por peso, secuencia rápida de intubación, TEC leve pediátrico (PECARN), preeclampsia y eclampsia (MSAL 2010), fármacos del maletín en el embarazo.
+- **Fichas**: consulta rápida. Medicación pediátrica por peso, secuencia rápida de intubación, TEC leve pediátrico (PECARN), preeclampsia y eclampsia (MSAL 2010), fármacos del maletín en el embarazo, calculadora de goteo (ml/h, micro y macrogotas, infusión de drogas por dosis).
 - **Maletín**: fármacos disponibles. Todas las dosis se cruzan con esta lista.
 
 ## Contador de FC y FR
@@ -75,6 +77,10 @@ Al tocar FC o FR en los signos vitales, el botón *Contar* abre un contador: se 
 
 El buscador reconoce sinónimos y variantes ("convulsionó", "se desmayó", "tomó pastillas"). Si encuentra varios motivos parecidos, los ofrece para elegir. Si no hay protocolo específico, siempre está el **manejo general por aparato**: el médico elige los sistemas comprometidos, aparecen sus banderas y, sin banderas rojas, se ofrece tratamiento sintomático con el maletín.
 
+## Motivos pediátricos
+
+Fiebre en el niño, laringitis, bronquiolitis y sibilancias del lactante, convulsión febril, y diarrea y vómitos. Con el botón *Niño* aparecen primero en la lista y en el buscador. Las dosis se calculan con el peso del paciente, tanto lo que se administra del maletín como lo que se indica para la casa (en mg y en ml de la presentación). Fuentes: SAP (IRAB 2021, fiebre sin foco 2017), MSAL (Programa IRAb 2025, diarrea, dengue), PALS.
+
 ## Historia clínica
 
 La pantalla *Historia clínica* sigue el orden de la planilla en papel: antecedentes, signos vitales (TA, FC, FR, ARM, SatO₂, T° axilar, glucemia, Glasgow), hallazgos (cardiovascular, respiratorio, abdomen, neurológico), diagnóstico presuntivo, tratamiento e indicaciones, medicación y descartables, observaciones (RCP / ECG), paciente e internación/derivación. Los datos filiatorios se completan a mano: la app no los guarda.
@@ -82,6 +88,8 @@ La pantalla *Historia clínica* sigue el orden de la planilla en papel: antecede
 ## Registro de atenciones
 
 Cada atención se guarda en el teléfono como una fila sin datos personales (al tocar *Nuevo caso* o *Guardar en registro*). En la pantalla *Registro*, *Copiar filas* copia todas las pendientes: se pegan en la primera fila vacía de la hoja **Registro** de la planilla de Google Sheets y cada dato cae en su columna. La hoja **Resumen** se calcula sola (motivos frecuentes, % de traslados, domicilio pese a criterio de traslado, diagnósticos con CIE-10, fármacos faltantes). Después de pegar, *Vaciar pendientes* las borra del teléfono.
+
+**Envío automático (opcional)**: en la planilla, *Extensiones → Apps Script*, pegar el contenido de `apps_script.gs` y guardar. *Implementar → Nueva implementación → Aplicación web*, ejecutar como *yo*, acceso *Cualquier persona*. Copiar el link que termina en `/exec` y pegarlo en Sirena → Registro → *Envío automático*. Desde ahí, cada atención guardada y cada nota se envían solas cuando hay señal; si no hay, quedan en el teléfono y se reintenta al volver la conexión. Si se vuelve a guardar la misma atención, se actualiza su fila en vez de duplicarla. El link queda solo en el teléfono.
 
 Códigos: cada motivo y diagnóstico tiene su CIE-10. El campo SNOMED CT está preparado pero vacío: completarlo con el servidor de terminología nacional antes de usarlo.
 

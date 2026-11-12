@@ -472,3 +472,11 @@ p.embn { margin: 0 0 6px; }
 .back.nota svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linejoin: round; stroke-linecap: round; }
 #upd { position: fixed; left: 50%; transform: translateX(-50%); top: calc(10px + env(safe-area-inset-top, 0px)); z-index: 40; display: flex; align-items: center; gap: 10px;
   background: var(--surface-2); border: 1px solid var(--accent); border-radius: 14px; padding: 8px 8px 8px 14px; box-shadow: 0 8px 24px rgb(0 0 0 / .4); width: max-content; max-width: calc(100% - 32px); font-weight: 600; font-size: 14px; }
+
+/* 1.6: goteo y pediatría */
+.tiles.got { margin-top: 4px; }
+.tiles.got .tile.big { grid-column: 1 / -1; background: var(--azul-bg, var(--surface-2)); }
+.tiles.got .tile.big b { font-size: 34px; }
+.rx.off { opacity: .7; }
+.rx.off .note { color: var(--rojo); font-weight: 700; }
+.calc select { height: 56px; border-radius: 12px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); padding: 0 10px; font: 700 16px var(--font-ui, inherit); width: 100%; min-width: 0; }

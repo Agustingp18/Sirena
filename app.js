@@ -85,7 +85,8 @@
   const KEY_SRI = "sirena.sri.conc";
   const FS = {
     sri: { kg: "", c: (() => { try { return JSON.parse(localStorage.getItem(KEY_SRI) || "{}"); } catch (e) { return {}; } })() },
-    embStock: false
+    embStock: false,
+    got: { modo: "vol", vol: "", t: "", tu: "h", dosis: "", du: "mcgkgmin", kg: "", mg: "", ml: "" }
   };
 
   /* ------------------------------------------------------------ estado */
@@ -182,6 +183,53 @@
   const saveReg = () => { try { localStorage.setItem(KEY_REG, JSON.stringify(REG)); } catch (e) { /* en memoria */ } };
   const planilla = () => { try { return localStorage.getItem(KEY_SHEET) || PLANILLA_DEFECTO; } catch (e) { return PLANILLA_DEFECTO; } };
 
+  /* Envío automático: un script de Google (Apps Script) publicado como aplicación web recibe las filas
+     y las escribe en la planilla. El link queda solo en este teléfono, nunca en el código público. */
+  const KEY_ENVIO = "sirena.registro.envio", KEY_ULT = "sirena.registro.ultimo";
+  const urlEnvio = () => { try { return localStorage.getItem(KEY_ENVIO) || ""; } catch (e) { return ""; } };
+  let enviando = false, envioError = "";
+  async function enviarPendientes(manual) {
+    const url = urlEnvio();
+    if (!url || enviando || !navigator.onLine) { if (manual && !navigator.onLine) toast("Sin conexión: se envía cuando vuelva la señal"); return; }
+    if (!REG.length && !NOTAS.length) { if (manual) toast("No hay nada pendiente"); return; }
+    enviando = true;
+    const lote = [];
+    if (REG.length) lote.push(["Registro", REG.map((r) => r.slice())]);
+    if (NOTAS.length) lote.push(["Notas", NOTAS.map((r) => r.slice())]);
+    let enviadas = 0;
+    try {
+      for (const [hoja, filas] of lote) {
+        const r = await fetch(url, { method: "POST", body: JSON.stringify({ hoja, filas }) });
+        const j = await r.json();
+        if (!j || !j.ok) throw new Error((j && j.error) || "respuesta inválida");
+        const ok = new Set(j.ids || []);
+        const lista = hoja === "Registro" ? REG : NOTAS;
+        // Solo se borran las filas que la planilla confirmó y que no cambiaron mientras tanto.
+        for (let i = lista.length - 1; i >= 0; i--) {
+          const enviada = filas.find((f) => f[0] === lista[i][0]);
+          if (ok.has(lista[i][0]) && enviada && enviada.join("\t") === lista[i].join("\t")) { lista.splice(i, 1); if (hoja === "Registro") enviadas++; }
+        }
+        hoja === "Registro" ? saveReg() : saveNotas();
+      }
+      envioError = "";
+      try { localStorage.setItem(KEY_ULT, String(Date.now())); } catch (e) { /* nada */ }
+      if (enviadas || manual) toast(enviadas ? `${enviadas} atenci${enviadas > 1 ? "ones enviadas" : "ón enviada"} a la planilla` : "Planilla al día");
+    } catch (e) {
+      envioError = String(e && e.message || e);
+      if (manual) toast("No se pudo enviar. Quedan guardadas en el teléfono.");
+    } finally {
+      enviando = false;
+      const foco = document.activeElement && document.activeElement.matches("input, textarea, select");
+      if (actual() === "registro" ? !foco || document.activeElement.id !== "envioUrl" : actual() === "inicio" && !foco) render(true);
+    }
+  }
+  function ultimoEnvio() {
+    let t = 0; try { t = Number(localStorage.getItem(KEY_ULT)) || 0; } catch (e) { t = 0; }
+    if (!t) return "todavía no se envió nada";
+    const d = new Date(t), p = (n) => String(n).padStart(2, "0");
+    return `último envío ${p(d.getDate())}/${p(d.getMonth() + 1)} ${p(d.getHours())}:${p(d.getMinutes())}`;
+  }
+
   /* ------------------------------------------------------------ maletín */
   const M = (() => {
     let saved = null;
@@ -205,9 +253,9 @@
     return b ? b.presentacion : "";
   }
   function resolver(item) {
-    if (enStock(item.f)) return { estado: "ok", f: item.f, dosis: item.dosis, nota: item.nota, original: item.f };
+    if (enStock(item.f)) return { estado: "ok", f: item.f, dosis: item.dosis, nota: item.nota, original: item.f, kg: item.kg, edadMin: item.edadMin, edadTxt: item.edadTxt };
     const alt = (item.alt || []).find((a) => enStock(a.f));
-    if (alt) return { estado: "alt", f: alt.f, dosis: alt.dosis || alt.texto, nota: item.nota, original: item.f };
+    if (alt) return { estado: "alt", f: alt.f, dosis: alt.dosis || alt.texto, nota: item.nota, original: item.f, kg: alt.kg, edadMin: alt.edadMin, edadTxt: alt.edadTxt };
     return { estado: "no", original: item.f, dosis: item.dosis, nota: item.nota };
   }
 
@@ -250,6 +298,7 @@
     return P.map((p) => {
       let score = 0;
       [...p.keywords, p.titulo].forEach((k) => { score += coincide(tokens, frase, norm(k)); });
+      if (score && p.ped) score *= esNino() ? 3 : S.pac.tipo === "adulto" || num(S.hc.edad) !== null ? 0.2 : 0.9;
       return { p, score };
     }).filter((x) => x.score > 0).sort((a, b) => b.score - a.score);
   }
@@ -309,16 +358,27 @@
 
   /* ------------------------------------------------------------ historia clínica (orden de la planilla) */
   function dxActual() { const p = protocolo(); return p && p.diagnosticos.find((d) => d.id === S.dx); }
+  const esPed = () => { const p = protocolo(); return !!(p && p.ped); };
+  const kgPac = () => { const k = num(S.pac.kg); return k && k > 0 ? k : null; };
+  const edadBloquea = (x) => x.edadMin && num(S.hc.edad) !== null && num(S.hc.edad) < x.edadMin;
   function medicacion(dx) {
     const vistos = new Set();
-    return dx.tratamiento.map((it, i) => Object.assign(resolver(it), { cond: !!it.cond, key: dx.id + ":" + i })).filter((r) => {
+    return dx.tratamiento.map((it, i) => {
+      const r = Object.assign(resolver(it), { cond: !!it.cond, key: dx.id + ":" + i });
+      if (r.kg && kgPac()) r.dosis = textoPed(r.kg, kgPac(), r.dosis);
+      r.bloq = edadBloquea(r);
+      return r;
+    }).filter((r) => {
       if (r.estado === "no" || vistos.has(r.f)) return false;
       vistos.add(r.f); return true;
     });
   }
+  function recetaPedTxt(dx) {
+    return (dx.recetaPed || []).filter((x) => !edadBloquea(x)).map((x) => `${x.n} ${textoPed(x.kg, kgPac(), "por peso")}`);
+  }
   const embInfo = (f) => (S.pac.emb && window.FICHA_EMB && window.FICHA_EMB.items[f]) || null;
-  const dado = (r) => (r.key in S.dados ? S.dados[r.key] : !r.cond && !((embInfo(r.f) || [])[0] === "no"));
-  function medicacionDada(dx) { return esNino() ? [] : medicacion(dx).filter(dado); }
+  const dado = (r) => !r.bloq && (r.key in S.dados ? S.dados[r.key] : !r.cond && !((embInfo(r.f) || [])[0] === "no"));
+  function medicacionDada(dx) { return esNino() && !esPed() ? [] : medicacion(dx).filter(dado); }
   function dosisCorta(t) { return String(t).split(/\.\s|\. /)[0].replace(/\.$/, ""); }
   const enDomicilio = () => S.flujo === "domicilio";
 
@@ -347,7 +407,7 @@
     if (enDomicilio() && dx) {
       dxTxt = `${dx.nombre} (CIE-10 ${dx.cie10})`;
       meds = medicacionDada(dx).map((r) => `${nombreFarmaco(r.f)} ${dosisCorta(r.dosis)}`);
-      tto = [...meds, ...dx.receta.map((t) => `Rp/ ${t}`), ...dx.medidas, ...dx.indicaciones];
+      tto = [...meds, ...recetaPedTxt(dx).map((t) => `Rp/ ${t}`), ...dx.receta.map((t) => `Rp/ ${t}`), ...dx.medidas, ...dx.indicaciones];
     } else if (!enDomicilio() && p) {
       dxTxt = `${p.titulo} — criterio de traslado`;
       tto = ["Traslado. Soporte durante el traslado según protocolo."];
@@ -400,6 +460,7 @@
     const i = REG.findIndex((r) => r[0] === S.caseId);
     if (i >= 0) REG[i] = fila; else REG.push(fila);
     saveReg();
+    setTimeout(() => enviarPendientes(false), 300);
     return true;
   }
   const tsv = (filas) => filas.map((f) => f.join("\t")).join("\n");
@@ -582,6 +643,7 @@
 
   function resultados() {
     const res = buscar(S.texto);
+    const L = esNino() ? [...P.filter((p) => p.ped), ...P.filter((p) => !p.ped)] : [...P.filter((p) => !p.ped), ...P.filter((p) => p.ped)];
     const boton = (p) => `<button class="motivo${res.some((r) => r.p.id === p.id) ? " match" : ""}" data-act="motivo" data-id="${p.id}">${esc(p.titulo)}</button>`;
     const escrito = S.texto.trim().length >= 3;
     return `${escrito ? `<div class="sugeridos">
@@ -589,8 +651,8 @@
         <button class="sug gen" data-act="motivo" data-id="general"><b>Manejo general por aparato</b><span>Para "${esc(S.texto)}": banderas por sistema y tratamiento sintomático</span></button>
       </div>` : ""}
       <p class="label" style="margin-top:22px">Motivos frecuentes</p>
-      <div class="motivos">${P.slice(0, 10).map(boton).join("")}</div>
-      <details class="mas"${escrito && res.some((r) => P.indexOf(r.p) >= 10) ? " open" : ""}><summary>Más motivos (${P.length - 10})</summary><div class="motivos">${P.slice(10).map(boton).join("")}</div></details>`;
+      <div class="motivos">${L.slice(0, 10).map(boton).join("")}</div>
+      <details class="mas"${escrito && res.some((r) => L.indexOf(r.p) >= 10) ? " open" : ""}><summary>Más motivos (${L.length - 10})</summary><div class="motivos">${L.slice(10).map(boton).join("")}</div></details>`;
   }
 
   V.inicio = () => {
@@ -677,14 +739,21 @@
       const cuenta = { ok: 0, alt: 0, no: 0 };
       filas.forEach((r) => cuenta[r.estado]++);
       html += `<article class="block" id="b1"><h2><span class="n">1</span>Medicación a administrar</h2><div class="body">
-        ${esNino() ? `<div class="alert warn"><p class="k">Paciente pediátrico</p><p>Las dosis de este protocolo son de adulto. Calculá por peso en la ficha de medicación pediátrica${S.pac.kg ? ` (${esc(S.pac.kg)} kg cargados)` : ""}.</p><div class="row-btns"><button class="btn sm primary" data-act="go" data-to="f-ped">Abrir medicación pediátrica</button></div></div>` : `<p class="hint">Tildado = administrado (pasa a la historia clínica). Los marcados "según cuadro" solo si corresponde.</p>
+        ${esPed() && !kgPac() ? `<div class="alert warn"><p class="k">Cargá el peso</p><p>Las dosis se calculan con el peso del niño.</p><div class="pacdatos"><label class="vf"><span>Peso</span><input data-pac="kg" data-rd="1" type="text" inputmode="decimal" autocomplete="off" placeholder="kg" value="${esc(S.pac.kg)}" aria-label="Peso en kg"></label></div></div>` : ""}
+        ${esPed() && kgPac() ? `<p class="hint">Dosis calculadas para ${esc(S.pac.kg)} kg. Verificá la concentración del envase.</p>` : ""}
+        ${esNino() && !esPed() ? `<div class="alert warn"><p class="k">Paciente pediátrico</p><p>Las dosis de este protocolo son de adulto. Calculá por peso en la ficha de medicación pediátrica${S.pac.kg ? ` (${esc(S.pac.kg)} kg cargados)` : ""}.</p><div class="row-btns"><button class="btn sm primary" data-act="go" data-to="f-ped">Abrir medicación pediátrica</button></div></div>` : `<p class="hint">Tildado = administrado (pasa a la historia clínica). Los marcados "según cuadro" solo si corresponde.</p>
         ${S.pac.emb ? `<div class="alert warn"><p><b>Embarazada:</b> cada fármaco indica si se puede usar. Los contraindicados quedan sin tildar.</p></div>` : ""}
-        ${meds.length ? meds.map((r) => `<div class="rx${r.cond ? " cond" : ""}"><label class="given"><input type="checkbox" data-act="dado" data-key="${r.key}" ${dado(r) ? "checked" : ""}><span class="box" aria-hidden="true"></span><b>${esc(nombreFarmaco(r.f))}</b>${r.cond ? `<em class="condt">según cuadro</em>` : ""}</label><span class="pres">${esc(presentacion(r.f))}</span><span>${esc(r.dosis)}</span>${r.estado === "alt" ? `<span class="note">Sustituye a ${esc(nombreFarmaco(r.original))} (sin stock).</span>` : ""}${r.nota ? `<span class="note">${esc(r.nota)}</span>` : ""}${embInfo(r.f) ? `<span class="embn ${embInfo(r.f)[0]}">Embarazo: ${esc(embInfo(r.f)[1])}</span>` : ""}</div>`).join("")
+        ${meds.length ? meds.map((r) => r.bloq ? `<div class="rx off"><b>${esc(nombreFarmaco(r.f))}</b><span class="note">No indicado a esta edad. ${esc(r.edadTxt || "")}.</span></div>` : `<div class="rx${r.cond ? " cond" : ""}"><label class="given"><input type="checkbox" data-act="dado" data-key="${r.key}" ${dado(r) ? "checked" : ""}><span class="box" aria-hidden="true"></span><b>${esc(nombreFarmaco(r.f))}</b>${r.cond ? `<em class="condt">según cuadro</em>` : ""}</label><span class="pres">${esc(presentacion(r.f))}</span><span>${esc(r.dosis)}</span>${r.estado === "alt" ? `<span class="note">Sustituye a ${esc(nombreFarmaco(r.original))} (sin stock).</span>` : ""}${r.nota ? `<span class="note">${esc(r.nota)}</span>` : ""}${embInfo(r.f) ? `<span class="embn ${embInfo(r.f)[0]}">Embarazo: ${esc(embInfo(r.f)[1])}</span>` : ""}</div>`).join("")
           : `<p class="hint">${dx.tratamiento.length ? "Ningún fármaco indicado está en el maletín. Ver bloque 3." : "Este cuadro no requiere medicación del maletín."}</p>`}`}
       </div></article>
       <article class="block"><h2><span class="n">2</span>Indicaciones al paciente</h2><div class="body">
         ${dx.medidas.length || dx.indicaciones.length ? `<div><h3>Indicaciones</h3><ul>${[...dx.medidas, ...dx.indicaciones].map((t) => `<li>${esc(t)}</li>`).join("")}</ul></div>` : ""}
-        ${dx.receta.length ? `<div><h3>Prescripción</h3>${esNino() ? `<p class="embn no">Dosis de adulto: ajustar por peso.</p>` : ""}${S.pac.emb ? `<p class="embn prec">Embarazada: revisá la receta. AINE (ibuprofeno, diclofenac) contraindicados desde la semana 20; IECA contraindicados siempre.</p>` : ""}<ul>${dx.receta.map((t) => `<li>${esc(t)}</li>`).join("")}</ul></div>` : ""}
+        ${(dx.recetaPed || []).length ? `<div><h3>Para indicar${kgPac() ? ` · ${esc(S.pac.kg)} kg` : ""}</h3><div class="pdg">${dx.recetaPed.map((x) => {
+          if (edadBloquea(x)) return `<div class="pd off"><div class="pdh"><b>${esc(x.n)}</b></div><p class="pdx">No indicado a esta edad. ${esc(x.edadTxt)}.</p></div>`;
+          const c = kgPac() ? calcPed(x.kg, kgPac()) : null;
+          return `<div class="pd"><div class="pdh"><b>${esc(x.n)}</b></div>${c ? `<div class="pdd"><span class="big">${esc(c.dosis)}</span><span>${esc(x.kg.via || "")}</span></div>${c.ml.map((m) => `<span class="pdm">${esc(m)}</span>`).join("")}` : `<span class="pdm">Cargá el peso para calcular</span>`}<span class="pdf">${esc(x.kg.frec || "")}</span>${x.edadTxt ? `<span class="pdn">${esc(x.edadTxt)}.</span>` : ""}${x.nota ? `<span class="pdn">${esc(x.nota)}</span>` : ""}</div>`;
+        }).join("")}</div></div>` : ""}
+        ${dx.receta.length ? `<div><h3>Prescripción</h3>${esNino() && !esPed() ? `<p class="embn no">Dosis de adulto: ajustar por peso.</p>` : ""}${S.pac.emb ? `<p class="embn prec">Embarazada: revisá la receta. AINE (ibuprofeno, diclofenac) contraindicados desde la semana 20; IECA contraindicados siempre.</p>` : ""}<ul>${dx.receta.map((t) => `<li>${esc(t)}</li>`).join("")}</ul></div>` : ""}
         <div><h3>Pautas de alarma</h3><ul>${dx.alarma.map((t) => `<li>${esc(t)}</li>`).join("")}</ul></div>
       </div></article>
       <article class="block"><h2><span class="n">3</span>Guía vs. maletín</h2><div class="body">
@@ -737,8 +806,9 @@
     const url = planilla();
     return `${header("Registro", { chip: false })}
     <main class="wrap">
-      <p class="hint">Cada atención queda como una fila sin datos personales. Copiá las pendientes y pegalas en tu planilla de Google Sheets, en la primera fila vacía de la hoja Registro: cada dato cae en su columna.</p>
-      <div class="alert ${REG.length ? "warn" : "ok"}"><p class="k">${REG.length ? `${REG.length} ${REG.length > 1 ? "atenciones pendientes" : "atención pendiente"}` : "Nada pendiente"}</p><p>${REG.length ? "Se guardan en este teléfono hasta que las pegues." : "Todo pasado a la planilla."}</p></div>
+      <p class="hint">Cada atención queda como una fila sin datos personales. ${urlEnvio() ? "Con el envío automático activado, se mandan solas a la planilla cuando hay señal." : "Copiá las pendientes y pegalas en tu planilla de Google Sheets, en la primera fila vacía de la hoja Registro, o activá el envío automático más abajo."}</p>
+      <div class="alert ${REG.length ? "warn" : "ok"}"><p class="k">${REG.length ? `${REG.length} ${REG.length > 1 ? "atenciones pendientes" : "atención pendiente"}` : "Nada pendiente"}</p><p>${REG.length ? (urlEnvio() ? (envioError ? "No se pudieron enviar todavía. Quedan guardadas y se reintenta solo." : navigator.onLine ? "Se están enviando." : "Sin señal: se envían cuando vuelva.") : "Se guardan en este teléfono hasta que las pegues.") : "Todo pasado a la planilla."}${urlEnvio() ? ` · ${ultimoEnvio()}` : ""}</p>
+        ${urlEnvio() && (REG.length || NOTAS.length) ? `<div class="row-btns"><button class="btn sm primary" data-act="enviar"${enviando ? " disabled" : ""}>${enviando ? "Enviando…" : "Enviar ahora"}</button></div>` : ""}</div>
       ${REG.length ? `<div class="group">${REG.map((r) => `<div class="drug"><div class="t"><b>${esc(r[7])}</b><small>${esc(r[1].split("-").reverse().join("/"))} ${esc(r[2])} · ${esc(r[15])}${r[10] ? " · " + esc(r[10]) : ""}</small></div><button class="del" data-act="delReg" data-id="${esc(r[0])}" aria-label="Quitar atención">×</button></div>`).join("")}</div>
       <div class="row-btns"><button class="btn primary" data-act="copiarReg">Copiar ${REG.length} fila${REG.length > 1 ? "s" : ""}</button></div>
       <div id="vaciar" hidden class="alert warn"><p class="k">¿Ya las pegaste en la planilla?</p><p>Al vaciar, se borran de este teléfono.</p>
@@ -753,6 +823,12 @@
       <section class="form"><p class="label">Planilla</p>
         <input id="sheetUrl" type="url" placeholder="Pegá acá el link de tu Google Sheets" value="${esc(url)}" aria-label="Link de la planilla">
         <div class="row-btns">${url ? `<a class="btn sm" href="${esc(url)}" target="_blank" rel="noopener">Abrir planilla</a>` : ""}<button class="btn sm ghost" data-act="copiarEnc">Copiar encabezados</button></div>
+      </section>
+      <section class="form"><p class="label">Envío automático</p>
+        <p class="hint">Pegá el link de la aplicación web del script de la planilla (termina en /exec). Queda guardado solo en este teléfono.</p>
+        <input id="envioUrl" type="url" placeholder="https://script.google.com/macros/s/…/exec" value="${esc(urlEnvio())}" aria-label="Link del envío automático">
+        ${urlEnvio() ? `<div class="row-btns"><button class="btn sm" data-act="probarEnvio">Probar conexión</button></div>` : ""}
+        ${envioError ? `<p class="hint">Último error: ${esc(envioError)}</p>` : ""}
       </section>
       <p class="hint">Sirena versión ${esc(META.version)}</p>
     </main>
@@ -834,7 +910,7 @@
   function fichaActual() { const id = location.hash.replace("#f-", ""); return FIC.find((f) => f.id === id); }
   V.ficha = () => {
     const f = fichaActual();
-    const cuerpo = { ped: fichaPed, sri: fichaSri, pecarn: fichaTec, pree: fichaPree, emb: fichaEmb }[f.tipo]();
+    const cuerpo = { ped: fichaPed, sri: fichaSri, pecarn: fichaTec, pree: fichaPree, emb: fichaEmb, goteo: fichaGoteo }[f.tipo]();
     return `${header(f.titulo, { chip: false })}<main class="wrap ficha ${f.tono}">${cuerpo}</main>`;
   };
 
@@ -846,26 +922,39 @@
       <div id="pedOut">${pedOut()}</div>
       <p class="disclaimer">${esc(D.nota)} Fuente: ${esc(D.fuente)}.</p>`;
   }
+  /* Dosis pediátrica por peso: la usan la ficha y los motivos pediátricos. */
+  function calcPed(it, kg) {
+    let dosis = "", ml = [];
+    if (it.fijo) { dosis = it.fijo; ml = it.ml || []; }
+    else if (it.calc === "puffs") { const n = Math.min(10, Math.max(2, Math.ceil(kg / 3))); dosis = `${n} disparos`; ml = ["100 mcg por disparo"]; }
+    else if (it.calc === "ipra") { const big = kg >= 20; dosis = big ? "0,5 mg" : "0,25 mg"; ml = [big ? "2 ml de solución 0,25 mg/ml" : "1 ml de solución 0,25 mg/ml"]; }
+    else if (it.calc === "adrNeb") { const v = Math.min(0.5 * kg, 5); dosis = `${fmt(v)} ml`; ml = ["de adrenalina 1:1000 sin diluir (0,5 ml/kg, máx. 5 ml)"]; }
+    else if (it.calc === "adrIM") { const mx = kg >= 50 ? 0.5 : 0.3; const v = Math.min(0.01 * kg, mx); dosis = `${fmt(v)} mg`; ml = [`${fmt(v)} ml de adrenalina 1:1000 · máx. ${fmt(mx)} mg`]; }
+    else if (it.calc === "dextrosa") { dosis = `${fmt(0.5 * kg)} g`; ml = [`${fmt(5 * kg)} ml de dextrosa 10 %`, `${fmt(2 * kg)} ml de dextrosa 25 % (preferir al 10 % en menores de 1 año)`]; }
+    else if (it.calc === "sf") { dosis = `${fmt(20 * kg)} ml`; ml = [`20 ml/kg · si se sospecha causa cardíaca: ${fmt(10 * kg)} ml (10 ml/kg)`]; }
+    else if (it.mlkg) { const v = it.max ? Math.min(it.mlkg * kg, it.max) : it.mlkg * kg; dosis = `${fmt(Math.round(v / 5) * 5 || v)} ml`; ml = [`${fmt(it.mlkg)} ml/kg${it.max && it.mlkg * kg > it.max ? ` · tope ${fmt(it.max)} ml` : ""}`]; }
+    else {
+      let lo = it.mgkg[0] * kg, hi = it.mgkg[1] * kg;
+      if (it.min) { lo = Math.max(lo, it.min); hi = Math.max(hi, it.min); }
+      if (it.max) { lo = Math.min(lo, it.max); hi = Math.min(hi, it.max); }
+      dosis = rango(lo, hi, "mg");
+      ml = (it.pres || []).map((p) => `${rango(lo / p.c, hi / p.c, "ml")} de ${minus(p.t)}`);
+      if (it.max && it.mgkg[1] * kg > it.max) ml.push(`Tope por dosis: ${fmt(it.max)} mg`);
+    }
+    return { dosis, ml };
+  }
+  /* Texto de una línea para la historia clínica y la receta. */
+  function textoPed(spec, kg, fallback) {
+    if (!spec || !kg) return fallback || "";
+    const { dosis, ml } = calcPed(spec, kg);
+    return [`${dosis} ${spec.via || ""}`.trim(), ml[0] || "", spec.frec || ""].filter(Boolean).join(" · ");
+  }
   function pedOut() {
     const D = window.FICHA_PED;
     const kg = num(S.pals.kg), edad = num(S.pals.edad);
     if (!kg || kg <= 0) return `<div class="alert warn"><p>Ingresá el peso para ver las dosis.</p></div>`;
     const item = (it) => {
-      let dosis = "", ml = [];
-      if (it.calc === "puffs") { const n = Math.min(10, Math.max(2, Math.ceil(kg / 3))); dosis = `${n} disparos`; ml = ["100 mcg por disparo"]; }
-      else if (it.calc === "ipra") { const big = kg >= 20; dosis = big ? "0,5 mg" : "0,25 mg"; ml = [big ? "2 ml de solución 0,25 mg/ml" : "1 ml de solución 0,25 mg/ml"]; }
-      else if (it.calc === "adrNeb") { const v = Math.min(0.5 * kg, 5); dosis = `${fmt(v)} ml`; ml = ["de adrenalina 1:1000 sin diluir (0,5 ml/kg, máx. 5 ml)"]; }
-      else if (it.calc === "adrIM") { const mx = kg >= 50 ? 0.5 : 0.3; const v = Math.min(0.01 * kg, mx); dosis = `${fmt(v)} mg`; ml = [`${fmt(v)} ml de adrenalina 1:1000 · máx. ${fmt(mx)} mg`]; }
-      else if (it.calc === "dextrosa") { dosis = `${fmt(0.5 * kg)} g`; ml = [`${fmt(5 * kg)} ml de dextrosa 10 %`, `${fmt(2 * kg)} ml de dextrosa 25 % (preferir al 10 % en menores de 1 año)`]; }
-      else if (it.calc === "sf") { dosis = `${fmt(20 * kg)} ml`; ml = [`20 ml/kg · si se sospecha causa cardíaca: ${fmt(10 * kg)} ml (10 ml/kg)`]; }
-      else {
-        let lo = it.mgkg[0] * kg, hi = it.mgkg[1] * kg;
-        if (it.min) { lo = Math.max(lo, it.min); hi = Math.max(hi, it.min); }
-        if (it.max) { lo = Math.min(lo, it.max); hi = Math.min(hi, it.max); }
-        dosis = rango(lo, hi, "mg");
-        ml = (it.pres || []).map((p) => `${rango(lo / p.c, hi / p.c, "ml")} de ${minus(p.t)}`);
-        if (it.max && it.mgkg[1] * kg > it.max) ml.push(`Tope por dosis: ${fmt(it.max)} mg`);
-      }
+      const { dosis, ml } = calcPed(it, kg);
       const bloqueado = it.edadMin && edad !== null && edad < it.edadMin;
       return `<div class="pd${bloqueado ? " off" : ""}">
         <div class="pdh"><b>${esc(it.n)}</b>${stockChip(it.f)}</div>
@@ -952,6 +1041,52 @@
       if (!xs.length) return "";
       return `<section><p class="label"><i class="sq ${tono}"></i> ${t} · ${xs.length}</p><ul class="cond">${xs.map((d) => `<li class="${tono}"><b>${esc(d.nombre)}</b><span>${esc(D.items[d.id][1])}</span></li>`).join("")}</ul></section>`;
     }).join("");
+  }
+
+  /* ------------------------------------------------------------ calculadora de goteo */
+  const UNID = { mcgkgmin: "mcg/kg/min", mcgmin: "mcg/min", mgkgh: "mg/kg/h", mgh: "mg/h", gh: "g/h" };
+  function fichaGoteo() {
+    const G = FS.got;
+    const inp = (k, l, ph) => `<label>${l}<input data-got="${k}" type="text" inputmode="decimal" autocomplete="off" value="${esc(G[k])}" placeholder="${ph}"></label>`;
+    return `<div class="seg big">${[["vol", "Volumen y tiempo"], ["droga", "Dosis de droga"]].map(([k, l]) => `<button data-act="gotModo" data-val="${k}" aria-pressed="${G.modo === k}">${l}</button>`).join("")}</div>
+      ${G.modo === "vol" ? `<div class="calc">${inp("vol", "Volumen (ml)", "500")}${inp("t", G.tu === "h" ? "Tiempo (horas)" : "Tiempo (minutos)", G.tu === "h" ? "8" : "30")}</div>
+        <div class="seg">${[["h", "Horas"], ["min", "Minutos"]].map(([k, l]) => `<button data-act="gotTu" data-val="${k}" aria-pressed="${G.tu === k}">${l}</button>`).join("")}</div>`
+      : `<div class="calc">${inp("dosis", "Dosis", "0,1")}<label>Unidad<select data-got="du">${Object.entries(UNID).map(([k, l]) => `<option value="${k}"${G.du === k ? " selected" : ""}>${l}</option>`).join("")}</select></label></div>
+        <div class="calc">${inp("mg", "Droga en la bolsa (mg)", "4")}${inp("ml", "Volumen total (ml)", "250")}</div>
+        ${/kg/.test(G.du) ? `<div class="calc one">${inp("kg", "Peso (kg)", "70")}</div>` : ""}
+        <p class="hint">Para gramos (ej. sulfato de magnesio) usá g/h y cargá la droga en mg: 5 g = 5000 mg.</p>`}
+      <div id="gotOut">${gotOut()}</div>
+      <section><p class="label">Para recordar</p><ul class="list">
+        <li>Microgotero (60 gotas = 1 ml): microgotas por minuto = ml/h.</li>
+        <li>Macrogotero (20 gotas = 1 ml): macrogotas por minuto = ml/h ÷ 3.</li>
+        <li>Para controlar un goteo: contá las gotas en 15 s y multiplicá por 4.</li>
+      </ul></section>
+      <p class="disclaimer">Cálculo aritmético. Confirmá el factor de goteo en el envase del equipo de infusión.</p>`;
+  }
+  function gotOut() {
+    const G = FS.got;
+    let mlh = null, extra = "";
+    if (G.modo === "vol") {
+      const v = num(G.vol), t = num(G.t);
+      if (!v || !t) return `<div class="alert warn"><p>Cargá el volumen y el tiempo.</p></div>`;
+      mlh = v / (G.tu === "h" ? t : t / 60);
+    } else {
+      const d = num(G.dosis), mg = num(G.mg), ml = num(G.ml), kg = num(G.kg);
+      const porKg = /kg/.test(G.du);
+      if (!d || !mg || !ml || (porKg && !kg)) return `<div class="alert warn"><p>Cargá la dosis, la droga en la bolsa, el volumen${porKg ? " y el peso" : ""}.</p></div>`;
+      const mgh = { mcgkgmin: d * kg * 60 / 1000, mcgmin: d * 60 / 1000, mgkgh: d * kg, mgh: d, gh: d * 1000 }[G.du];
+      const c = mg / ml;
+      mlh = mgh / c;
+      extra = `<div class="tile"><b>${fmt(c)} mg/ml</b><span>${fmt(c * 1000)} mcg/ml de concentración</span></div><div class="tile"><b>${fmt(mgh)} mg/h</b><span>dosis por hora</span></div>`;
+    }
+    const macro = mlh / 3, seg = macro > 0 ? 60 / macro : 0;
+    const r1 = (x) => fmt(Math.round(x * 10) / 10);
+    return `<div class="tiles got">
+      <div class="tile big"><b>${r1(mlh)} ml/h</b><span>bomba de infusión</span></div>
+      <div class="tile"><b>${Math.round(mlh)}</b><span>microgotas por minuto</span></div>
+      <div class="tile"><b>${Math.round(macro)}</b><span>macrogotas por minuto${seg ? ` · 1 gota cada ${r1(seg)} s` : ""}</span></div>
+      ${extra}</div>
+      ${mlh > 999 ? `<div class="alert warn"><p>Ritmo muy alto: revisá los datos.</p></div>` : ""}`;
   }
 
   function palsOut() {
@@ -1078,7 +1213,7 @@
           const d = new Date(), p = protocolo();
           NOTAS.push([`N${Date.now().toString(36)}`, `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`, `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`,
             actual(), p ? p.titulo : "", t.trim().replace(/[\t\r\n]+/g, " "), META.version]);
-          saveNotas(); toast("Nota guardada");
+          saveNotas(); toast("Nota guardada"); setTimeout(() => enviarPendientes(false), 300);
         }
         cerrarHoja(); if (actual() === "registro") render(true); break;
       }
@@ -1127,7 +1262,17 @@
         vitalCambio(); toast(n ? `${n} valor${n > 1 ? "es" : ""} completado${n > 1 ? "s" : ""} con normales` : "No había campos vacíos"); break;
       }
       case "codigo": S.codigo = S.codigo === b.dataset.c ? null : b.dataset.c; render(); break;
-      case "motivo": S.caseId = S.caseId || "A" + Date.now().toString(36).toUpperCase(); S.inicio = S.inicio || Date.now(); S.motivo = b.dataset.id; S.sistemas.clear(); S.banderas.clear(); S.auto.clear(); S.off.clear(); S.override = false; S.dx = null; aplicarVitales(); go("triage"); break;
+      case "enviar": enviarPendientes(true); break;
+      case "probarEnvio": {
+        const u = urlEnvio();
+        if (!/^https:\/\/script\.google(usercontent)?\.com\//.test(u)) { toast("El link tiene que ser de script.google.com"); break; }
+        fetch(u + (u.includes("?") ? "&" : "?") + "ping=1").then((r) => r.json()).then((j) => { envioError = ""; toast(j && j.ok ? `Conectado a "${j.planilla || "la planilla"}"` : "Respondió, pero no es el script de Sirena"); if (j && j.ok && REG.length) enviarPendientes(false); else render(true); })
+          .catch(() => { envioError = "no responde: revisá el link y que la implementación sea para «Cualquier persona»"; render(true); toast("No se pudo conectar"); });
+        break;
+      }
+      case "gotModo": FS.got.modo = b.dataset.val; render(true); break;
+      case "gotTu": FS.got.tu = b.dataset.val; render(true); break;
+      case "motivo": S.caseId = S.caseId || "A" + Date.now().toString(36).toUpperCase(); S.inicio = S.inicio || Date.now(); S.motivo = b.dataset.id; if (protocolo() && protocolo().ped && !S.pac.tipo) S.pac.tipo = "nino"; S.sistemas.clear(); S.banderas.clear(); S.auto.clear(); S.off.clear(); S.override = false; S.dx = null; aplicarVitales(); go("triage"); break;
       case "evaluar":
         S.override = false; S.dx = null;
         if (tildadas("rojo").length) { S.hc.paciente = ""; go("derivacion"); }
@@ -1165,6 +1310,8 @@
 
   document.addEventListener("change", (e) => {
     const t = e.target, a = t.dataset && t.dataset.act;
+    if (t.dataset && t.dataset.rd) { render(true); return; }
+    if (t.id === "envioUrl") { render(true); if (urlEnvio()) enviarPendientes(false); return; }
     if (a === "flag") {
       const id = t.dataset.id;
       if (t.checked) S.banderas.add(id);
@@ -1201,15 +1348,18 @@
         if (tipo !== S.pac.tipo) { S.pac.tipo = tipo; if (tipo === "nino") S.pac.emb = false; const pos = t.selectionStart; refrescarPaciente(); const n = $(`.pac input[data-pac="edad"]`); if (n) { n.focus(); try { n.setSelectionRange(pos, pos); } catch (err) { /* nada */ } } }
       } else S.pac.kg = t.value.replace(/[^0-9.,]/g, "");
       syncPals();
+      if (t.dataset.rd) return;
       if (actual() === "triage") { aplicarVitales(); refrescarTriage(); } else refrescarHC();
     }
     else if (t.dataset.hora) { S.horas[t.dataset.hora] = t.value; refrescarHC(); }
     else if (t.id === "sheetUrl") { try { localStorage.setItem(KEY_SHEET, t.value.trim()); } catch (err) { /* nada */ } }
+    else if (t.id === "envioUrl") { try { localStorage.setItem(KEY_ENVIO, t.value.trim()); } catch (err) { /* nada */ } }
     else if (t.id === "kg" || t.id === "edad") {
       S.pals[t.id] = t.value;
       const po = $("#palsOut"); if (po) po.innerHTML = palsOut();
       const pe = $("#pedOut"); if (pe) pe.innerHTML = pedOut();
     }
+    else if (t.dataset.got) { FS.got[t.dataset.got] = t.value; const o = $("#gotOut"); if (o) o.innerHTML = gotOut(); if (t.tagName === "SELECT") render(true); }
     else if (t.id === "sk") { FS.sri.kg = t.value; $("#sriOut").innerHTML = sriOut(); }
     else if (t.dataset.conc) {
       FS.sri.c[t.dataset.conc] = t.value.trim();
@@ -1234,6 +1384,7 @@
       const r = buscar(S.texto);
       S.caseId = S.caseId || "A" + Date.now().toString(36).toUpperCase(); S.inicio = S.inicio || Date.now();
       S.motivo = r.length ? r[0].p.id : "general";
+      if (protocolo() && protocolo().ped && !S.pac.tipo) S.pac.tipo = "nino";
       S.sistemas.clear(); S.banderas.clear(); S.auto.clear(); S.off.clear(); S.override = false; S.dx = null;
       go("triage");
     }
@@ -1264,7 +1415,8 @@
   document.addEventListener("input", guardarCaso);
   document.addEventListener("click", guardarCaso);
   chequearVersion();
-  window.addEventListener("online", chequearVersion);
+  window.addEventListener("online", () => { chequearVersion(); enviarPendientes(false); });
+  setTimeout(() => enviarPendientes(false), 1500);
   document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") chequearVersion(); });
   if ("serviceWorker" in navigator && /^https?:/.test(location.protocol) && document.querySelector('link[rel="manifest"]')) {
     window.addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));

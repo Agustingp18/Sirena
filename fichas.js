@@ -25,7 +25,8 @@ window.FICHAS = [
   { id: "sri", titulo: "Secuencia rápida de intubación", sub: "Inducción y bloqueo por peso", tono: "rojo", tipo: "sri" },
   { id: "tec", titulo: "TEC leve en pediatría", sub: "Regla PECARN: ¿necesita tomografía?", tono: "azul", tipo: "pecarn" },
   { id: "pree", titulo: "Preeclampsia y eclampsia", sub: "Criterios de gravedad y sulfato de magnesio", tono: "rosa", tipo: "pree" },
-  { id: "emb", titulo: "Fármacos del maletín en el embarazo", sub: "Qué usar, con qué cuidado y qué evitar", tono: "verde", tipo: "emb" }
+  { id: "emb", titulo: "Fármacos del maletín en el embarazo", sub: "Qué usar, con qué cuidado y qué evitar", tono: "verde", tipo: "emb" },
+  { id: "got", titulo: "Calculadora de goteo", sub: "ml/h, gotas por minuto e infusión de drogas", tono: "azul", tipo: "goteo" }
 ];
 
 /* -------------------------------------------------------------------------
