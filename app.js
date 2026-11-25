@@ -21,7 +21,9 @@
     "Diagnóstico presuntivo", "CIE-10 diagnóstico", "SNOMED CT diagnóstico", "Banderas rojas", "Banderas amarillas", "Conducta",
     "Paciente", "Internación / derivación", "Medicación administrada", "Faltantes del maletín", "RCP", "ECG",
     "TA", "FC", "FR", "SatO2", "T° axilar", "Glucemia", "Glasgow", "Versión app",
-    "Tipo paciente", "Peso (kg)", "Embarazo", "Hora llegada", "Hora salida", "Hora llegada destino"];
+    "Tipo paciente", "Peso (kg)", "Embarazo", "Hora llegada", "Hora salida", "Hora llegada destino",
+    "Motivo escrito", "XABCDE", "Escalas"];
+  const ESC = window.ESCALAS;
 
   const CODIGOS = {
     rojo: { label: "Rojo", sub: "Emergencia" },
@@ -96,7 +98,9 @@
       codigo: null, motivo: null, texto: "", caseId: null, inicio: null, retomable: null, flujo: null,
       banderas: new Set(), auto: new Set(), off: new Set(), sistemas: new Set(),
       override: false, dx: null,
-      v: { ta: "", tas: "", tad: "", fc: "", fr: "", sat: "", temp: "", gluc: "", gcs: "", arm: "" },
+      v: S.vt && Date.now() - S.vt < 30 * 60000 ? S.v : { ta: "", tas: "", tad: "", fc: "", fr: "", sat: "", temp: "", gluc: "", gcs: "", arm: "", o2: false },
+      vt: S.vt && Date.now() - S.vt < 30 * 60000 ? S.vt : 0,
+      g: {}, esc: {}, xab: { ok: false, t: "", open: "" }, autoG: new Set(),
       dados: {},
       hc: { edad: "", sexo: "", antec: "", cv: "", resp: "", abd: "", neuro: "", desc: new Set(), descOtro: "", obs: "", rcp: false, ecg: false, paciente: "", intern: "" },
       gcsComp: null,
@@ -138,9 +142,10 @@
     clearTimeout(tCaso);
     tCaso = setTimeout(() => {
       if (!S.motivo) return;
+      registrarAuto();
       try {
         localStorage.setItem(KEY_CASO, JSON.stringify(Object.assign({}, S, {
-          banderas: [...S.banderas], auto: [...S.auto], off: [...S.off], sistemas: [...S.sistemas],
+          banderas: [...S.banderas], auto: [...S.auto], off: [...S.off], sistemas: [...S.sistemas], autoG: [...S.autoG],
           hc: Object.assign({}, S.hc, { desc: [...S.hc.desc] }), tec: undefined, retomable: undefined,
           pantalla: location.hash.replace("#", "") || "inicio", guardado: Date.now()
         })));
@@ -153,7 +158,8 @@
     const destino = c.pantalla && !c.pantalla.startsWith("f-") ? c.pantalla : "triage";
     estadoInicial();
     Object.assign(S, c, {
-      banderas: new Set(c.banderas), auto: new Set(c.auto), off: new Set(c.off), sistemas: new Set(c.sistemas),
+      banderas: new Set(c.banderas), auto: new Set(c.auto), off: new Set(c.off), sistemas: new Set(c.sistemas), autoG: new Set(c.autoG || []),
+      g: c.g || {}, esc: c.esc || {}, xab: c.xab || { ok: false, t: "", open: "" },
       hc: Object.assign({}, S.hc, c.hc, { desc: new Set(c.hc.desc || []) }), tec: S.tec, retomable: null
     });
     delete S.pantalla; delete S.guardado;
@@ -283,22 +289,42 @@
 
   /* Coincidencia por raíz: "convulsiono" encuentra "convulsion", "desmayada" encuentra "desmayo". */
   const raiz = (w) => (w.length >= 5 ? w.slice(0, Math.max(4, w.length - 2)) : w);
-  function coincide(tokens, frase, kw) {
-    if (kw.includes(" ")) return (" " + frase + " ").includes(" " + kw + " ") ? 3 + kw.split(" ").length : 0;
-    for (const tk of tokens) {
-      if (tk === kw) return 2;
-      if (kw.length >= 5 && tk.length >= 5 && (tk.startsWith(raiz(kw)) || kw.startsWith(raiz(tk)))) return 1.5;
+  const STOP = new Set(["con", "del", "las", "los", "una", "uno", "por", "que", "para", "sin", "muy", "mas", "se", "le", "la", "el", "de", "en", "al", "y", "su", "lo", "me", "mi", "hace", "esta"]);
+  /* Distancia de edición: tolera errores de tipeo ("hipoglusemia", "convulcion"). */
+  function lev(a, b) {
+    if (Math.abs(a.length - b.length) > 2) return 9;
+    let prevRow = Array.from({ length: b.length + 1 }, (_, i) => i);
+    for (let i = 1; i <= a.length; i++) {
+      const row = [i];
+      for (let j = 1; j <= b.length; j++) row[j] = Math.min(prevRow[j] + 1, row[j - 1] + 1, prevRow[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+      prevRow = row;
     }
+    return prevRow[b.length];
+  }
+  function tokCoincide(tk, w) {
+    if (tk === w) return 2;
+    if (w.length >= 5 && tk.length >= 5 && (tk.startsWith(raiz(w)) || w.startsWith(raiz(tk)))) return 1.5;
+    if (w.length >= 5 && tk.length >= 4 && lev(tk, w) <= (w.length >= 8 ? 2 : 1)) return 1.2;
     return 0;
+  }
+  function coincide(tokens, frase, kw) {
+    if (!kw.includes(" ")) { let m = 0; for (const tk of tokens) m = Math.max(m, tokCoincide(tk, kw)); return m; }
+    if ((" " + frase + " ").includes(" " + kw + " ")) return 3 + kw.split(" ").length;
+    const ws = kw.split(" ").filter((w) => w.length >= 3 && !STOP.has(w));
+    if (!ws.length) return 0;
+    const hit = ws.filter((w) => tokens.some((tk) => tokCoincide(tk, w) > 0)).length;
+    if (hit === ws.length) return 2 + ws.length;
+    return ws.length >= 2 && hit / ws.length >= 0.5 ? 1 : 0;
   }
   function buscar(texto) {
     const frase = norm(texto).replace(/[^a-z0-9ñ ]+/g, " ").replace(/\s+/g, " ").trim();
     if (frase.length < 3) return [];
-    const tokens = frase.split(" ");
+    const tokens = frase.split(" ").filter((t) => t.length >= 2 && !STOP.has(t));
     return P.map((p) => {
       let score = 0;
-      [...p.keywords, p.titulo].forEach((k) => { score += coincide(tokens, frase, norm(k)); });
+      [...p.keywords, p.titulo, p.corto || ""].filter(Boolean).forEach((k) => { score += coincide(tokens, frase, norm(k)); });
       if (score && p.ped) score *= esNino() ? 3 : S.pac.tipo === "adulto" || num(S.hc.edad) !== null ? 0.2 : 0.9;
+      if (score && p.adulto && esNino()) score *= 0.3;
       return { p, score };
     }).filter((x) => x.score > 0).sort((a, b) => b.score - a.score);
   }
@@ -334,7 +360,8 @@
         u_sat: sat !== null && sat > 0 && sat < 92,
         u_temp: t !== null && t >= 40,
         u_hipot: t !== null && t > 0 && t < 35,
-        u_gcs: gcs !== null && gcs >= 3 && gcs < 15
+        u_gcs: gcs !== null && gcs >= 3 && gcs < 15,
+        u_gluc: num(v.gluc) !== null && num(v.gluc) > 0 && num(v.gluc) < 70
       };
     }
     return {
@@ -344,7 +371,8 @@
       u_sat: sat !== null && sat > 0 && sat < (epoc ? 88 : 92),
       u_temp: t !== null && t >= 40,
       u_hipot: t !== null && t > 0 && t < 35,
-      u_gcs: gcs !== null && gcs >= 3 && gcs < 15
+      u_gcs: gcs !== null && gcs >= 3 && gcs < 15,
+      u_gluc: num(v.gluc) !== null && num(v.gluc) > 0 && num(v.gluc) < 70
     };
   }
   function aplicarVitales() {
@@ -354,6 +382,131 @@
       if (!on && S.auto.has(id)) { S.banderas.delete(id); S.auto.delete(id); }
       if (!on) S.off.delete(id);
     });
+    aplicarGuia();
+  }
+
+  /* ------------------------------------------------------------ índices calculados con los signos vitales */
+  const tasDe = () => num(S.v.tas || String(S.v.ta).split("/")[0]);
+  function shockIdx() {
+    const fc = num(S.v.fc), tas = tasDe();
+    return fc && tas && !esNino() ? Math.round((fc / tas) * 10) / 10 : null;
+  }
+  /* NEWS2 (Royal College of Physicians 2017): adultos, escala 1 de SatO₂. */
+  function news2() {
+    if (esNino() || S.pac.emb) return null;
+    const v = S.v, p = [];
+    const fr = num(v.fr), sat = num(v.sat), tas = tasDe(), fc = num(v.fc), t = num(v.temp), gcs = num(v.gcs);
+    if (fr) p.push(["FR", fr, fr <= 8 ? 3 : fr <= 11 ? 1 : fr <= 20 ? 0 : fr <= 24 ? 2 : 3]);
+    if (sat) p.push(["SatO₂", sat + " %", sat <= 91 ? 3 : sat <= 93 ? 2 : sat <= 95 ? 1 : 0]);
+    if (tas) p.push(["TAS", tas, tas <= 90 ? 3 : tas <= 100 ? 2 : tas <= 110 ? 1 : tas <= 219 ? 0 : 3]);
+    if (fc) p.push(["FC", fc, fc <= 40 ? 3 : fc <= 50 ? 1 : fc <= 90 ? 0 : fc <= 110 ? 1 : fc <= 130 ? 2 : 3]);
+    if (gcs) p.push(["Conciencia", gcs < 15 ? "alterada" : "alerta", gcs < 15 ? 3 : 0]);
+    if (t) p.push(["Temperatura", t + " °C", t <= 35 ? 3 : t <= 36 ? 1 : t <= 38 ? 0 : t <= 39 ? 1 : 2]);
+    if (p.length < 3) return null;
+    p.push(["O₂ suplementario", v.o2 ? "sí" : "no", v.o2 ? 2 : 0]);
+    const total = p.reduce((a, x) => a + x[2], 0);
+    const tres = p.some((x) => x[2] === 3);
+    const nivel = total >= 7 ? "rojo" : total >= 5 || tres ? "amarillo" : "verde";
+    const riesgo = total >= 7 ? "riesgo alto" : total >= 5 ? "riesgo medio" : tres ? "riesgo bajo-medio" : "riesgo bajo";
+    return { total, p, faltan: 6 - (p.length - 1), nivel, riesgo };
+  }
+  function indicesHTML() {
+    const n = news2(), si = shockIdx();
+    const chips = [];
+    if (n) chips.push(`<button type="button" class="ix ${n.nivel}" data-act="escala" data-k="news2"><b>NEWS2 ${n.total}</b><span>${n.riesgo}${n.faltan ? ` · faltan ${n.faltan}` : ""}</span></button>`);
+    if (si !== null) chips.push(`<div class="ix ${si >= 1 ? "rojo" : si >= 0.9 ? "amarillo" : "verde"}"><b>Índice de shock ${fmt(si)}</b><span>FC/TAS${si >= 1 ? " · ≥ 1: hipoperfusión probable" : ""}</span></div>`);
+    if (!esNino()) chips.push(`<button type="button" class="ix o2" data-act="o2" aria-pressed="${!!S.v.o2}"><b>${S.v.o2 ? "Con O₂" : "Aire ambiente"}</b><span>tocá para cambiar</span></button>`);
+    return chips.length ? `<div class="ixs">${chips.join("")}</div>` : "";
+  }
+
+  /* ------------------------------------------------------------ guía de evaluación: SAMPLE · OPQRST · preguntas clave · constatar */
+  const G = () => (window.GUIAS || {})[S.motivo] || {};
+  const mujerFertil = () => S.hc.sexo !== "M" && !esNino();
+  const visible = (it) => !(it.soloF && !mujerFertil()) && !(G().ocultar || []).includes(it.id);
+  function itemsLetra(k) {
+    const base = (esNino() && window.SAMPLE_PED[k]) || (window.SAMPLE.find((x) => x.k === k) || { items: [] }).items;
+    return [...base, ...(G()[k] || [])].filter(visible);
+  }
+  const itemsOpqrst = () => (G().dolor ? window.OPQRST.flatMap((l) => l.items) : []);
+  const itemsEsp = () => (G().esp || []).filter(visible);
+  const itemsEx = () => (G().ex || []).filter(visible);
+  function todasPreguntas() { return [...window.SAMPLE.flatMap((l) => itemsLetra(l.k)), ...itemsOpqrst(), ...itemsEsp(), ...itemsEx()]; }
+  const preg = (q) => q.replace(/^¿/, "").replace(/\?$/, "");
+  function respTxt(it) {
+    const v = S.g[it.id];
+    if (v == null || v === "" || (Array.isArray(v) && !v.length)) return "";
+    const d = S.g[it.id + "_t"];
+    if (it.r === "sn") return `${preg(it.q)}: ${v === "Sí" ? "sí" : "no"}${v === "Sí" && d ? ` (${d})` : ""}`;
+    return `${preg(it.q)}: ${Array.isArray(v) ? v.join(", ") : v}`;
+  }
+  const respuestas = (its) => its.map(respTxt).filter(Boolean);
+
+  function evalEscala(k) {
+    const e = ESC[k], r = S.esc[k] || {};
+    if (!e) return null;
+    if (e.tipo === "items") {
+      if (!r.sel) return null;
+      const sel = r.sel.map((i) => e.items[i]);
+      const pts = sel.reduce((a, x) => a + (typeof x[1] === "number" ? x[1] : 1), 0);
+      const [nivel, txt] = e.interp(pts, sel.map((x) => x[1]));
+      return { nivel, txt };
+    }
+    if (e.tipo === "select") { if (r.v == null) return null; const [nivel, txt] = e.interp(r.v); return { nivel, txt }; }
+    if (e.tipo === "ortost") {
+      const o = r.o || {}, t1 = num(o.tas1), t2 = num(o.tas2), f1 = num(o.fc1), f2 = num(o.fc2);
+      if (!(t1 && t2) && !o.sint) return null;
+      const dT = t1 && t2 ? t1 - t2 : 0, dF = f1 && f2 ? f2 - f1 : 0;
+      const pos = dT >= 20 || (t2 && t2 < 90) || dF >= 30 || !!o.sint;
+      return { nivel: pos ? "rojo" : "verde", txt: pos ? `Positivo${dT >= 20 ? ` · TAS −${dT}` : ""}${dF >= 30 ? ` · FC +${dF}` : ""}${o.sint ? " · síntomas al pararse" : ""}` : `Negativo${t1 && t2 ? ` · TAS ${t1}→${t2}` : ""}${f1 && f2 ? ` · FC ${f1}→${f2}` : ""}` };
+    }
+    if (e.tipo === "news2") { const n = news2(); return n ? { nivel: n.nivel, txt: `${n.total} puntos · ${n.riesgo}` } : null; }
+    return null;
+  }
+  function escalasTxt() {
+    const out = Object.keys(S.esc).filter((k) => S.esc[k].usada).map((k) => { const r = evalEscala(k); return r ? `${ESC[k].t}: ${r.txt}` : ""; }).filter(Boolean);
+    const n = news2(); if (n && !(S.esc.news2 && S.esc.news2.usada)) out.push(`NEWS2: ${n.total} (${n.riesgo})`);
+    const si = shockIdx(); if (si !== null) out.push(`Índice de shock: ${fmt(si)}`);
+    return out.join("; ");
+  }
+  function qsofaVitales() {
+    const fr = num(S.v.fr), gcs = num(S.v.gcs), tas = tasDe();
+    if (!(fr || gcs || tas)) return null;
+    return [fr !== null && fr >= 22, gcs !== null && gcs > 0 && gcs < 15, tas !== null && tas > 0 && tas <= 100];
+  }
+  function banderasDeGuia() {
+    const out = new Set(), g = G();
+    const marcar = (id) => { if (id) out.add(id); };
+    todasPreguntas().forEach((it) => {
+      const v = S.g[it.id];
+      if (it.r === "sn") { if (v === "Sí") marcar(it.si || (g.siGen || {})[it.id]); if (v === "No") marcar(it.no); }
+      if (it.r === "op" && it.fl) (Array.isArray(v) ? v : [v]).forEach((x) => marcar(it.fl[x]));
+    });
+    const mapa = {}; (g.escalas || []).forEach((e) => { mapa[e.k] = e.flag; });
+    Object.keys(S.esc).forEach((k) => { const r = evalEscala(k); if (r && r.nivel === "rojo" && S.esc[k].usada) marcar(mapa[k] || (ESC[k] || {}).flag); });
+    if (mapa.qsofa) { const q = qsofaVitales(); if (q && q.filter(Boolean).length >= 2) marcar(mapa.qsofa); }
+    const a = g.auto || {};
+    const si = shockIdx(); if (a.shock && si !== null && si >= 1) marcar(a.shock);
+    const n = news2(); if (n) { if (a.news7 && n.total >= 7) marcar(a.news7); else if (a.news5 && n.total >= 5) marcar(a.news5); }
+    return out;
+  }
+  function aplicarGuia() {
+    if (!S.motivo) return;
+    const validas = new Set(todasBanderas().map((b) => b.id));
+    const nuevas = new Set([...banderasDeGuia()].filter((id) => validas.has(id)));
+    nuevas.forEach((id) => { if (!S.off.has(id) && !S.banderas.has(id)) { S.banderas.add(id); S.autoG.add(id); S.auto.add(id); } });
+    [...S.autoG].forEach((id) => { if (!nuevas.has(id)) { S.autoG.delete(id); S.auto.delete(id); S.banderas.delete(id); S.off.delete(id); } });
+  }
+
+  /* Alergias declaradas en el SAMPLE contra la medicación del maletín */
+  function alergico(f) {
+    const t = S.g.a_alerg === "Sí" ? norm(S.g.a_alerg_t || "") : "";
+    if (!t || !f) return false;
+    const nombre = norm(nombreFarmaco(f));
+    if (t.split(/[^a-zñ]+/).some((w) => w.length >= 4 && nombre.includes(w.slice(0, 5)))) return true;
+    if (["diclofenac", "ketorolac", "aas"].includes(f) && /aine|antiinflamatori|ibuprofeno|aspirina|diclofenac|ketorolac/.test(t)) return true;
+    if (["dipirona", "hioscina_dipirona"].includes(f) && /dipirona|novalgina|metamizol/.test(t)) return true;
+    if (f === "hioscina_dipirona" && /buscapina|hioscina/.test(t)) return true;
+    return false;
   }
 
   /* ------------------------------------------------------------ historia clínica (orden de la planilla) */
@@ -367,6 +520,7 @@
       const r = Object.assign(resolver(it), { cond: !!it.cond, key: dx.id + ":" + i });
       if (r.kg && kgPac()) r.dosis = textoPed(r.kg, kgPac(), r.dosis);
       r.bloq = edadBloquea(r);
+      r.alergia = alergico(r.f);
       return r;
     }).filter((r) => {
       if (r.estado === "no" || vistos.has(r.f)) return false;
@@ -377,7 +531,7 @@
     return (dx.recetaPed || []).filter((x) => !edadBloquea(x)).map((x) => `${x.n} ${textoPed(x.kg, kgPac(), "por peso")}`);
   }
   const embInfo = (f) => (S.pac.emb && window.FICHA_EMB && window.FICHA_EMB.items[f]) || null;
-  const dado = (r) => !r.bloq && (r.key in S.dados ? S.dados[r.key] : !r.cond && !((embInfo(r.f) || [])[0] === "no"));
+  const dado = (r) => !r.bloq && !r.alergia && (r.key in S.dados ? S.dados[r.key] : !r.cond && !((embInfo(r.f) || [])[0] === "no"));
   function medicacionDada(dx) { return esNino() && !esPed() ? [] : medicacion(dx).filter(dado); }
   function dosisCorta(t) { return String(t).split(/\.\s|\. /)[0].replace(/\.$/, ""); }
   const enDomicilio = () => S.flujo === "domicilio";
@@ -391,17 +545,20 @@
     F.push(["Código", S.codigo ? CODIGOS[S.codigo].label : "—"]);
     F.push(["Edad / Sexo", `${S.hc.edad || "—"} / ${S.hc.sexo || "—"}${esNino() ? " · pediátrico" : ""}${S.pac.kg ? ` · ${S.pac.kg} kg` : ""}${S.pac.emb ? " · embarazada" : ""}`]);
     F.push(["Horarios", `Llegada ${S.horas.llegada || "—"} · Salida ${S.horas.salida || "—"} · Llegada a destino ${S.horas.destino || "—"}`]);
-    F.push(["Motivo de la consulta", p ? `${p.titulo}${S.texto && norm(S.texto) !== norm(p.titulo) ? ` (refiere: ${S.texto})` : ""}` : "—"]);
-    F.push(["Antec. de enferm. y medicación actual", S.hc.antec || "—"]);
+    const enfAct = respuestas([...itemsLetra("S"), ...itemsLetra("E"), ...itemsOpqrst(), ...itemsEsp()]);
+    F.push(["Motivo de la consulta", p ? `${p.titulo}${S.texto && norm(S.texto) !== norm(p.titulo) ? ` (refiere: ${S.texto})` : ""}${enfAct.length ? ". " + enfAct.join(". ") : ""}` : "—"]);
+    const antec = [S.hc.antec, ...respuestas([...itemsLetra("P"), ...itemsLetra("M"), ...itemsLetra("A"), ...itemsLetra("L")])].filter(Boolean);
+    F.push(["Antec. de enferm. y medicación actual", antec.join(". ") || "—"]);
     F.push(["Signos vitales", [
       `TA ${v.ta || "—"}`, `FC ${v.fc || "—"}`, `FR ${v.fr || "—"}`, `ARM ${v.arm || "—"}`,
       `SatO₂ ${v.sat ? v.sat + " %" : "—"}`, `T° ax ${v.temp ? v.temp + " °C" : "—"}`,
       `Glucemia ${v.gluc ? v.gluc + " mg/dl" : "—"}`, `Glasgow ${v.gcs ? v.gcs + "/15" + (S.gcsComp ? ` (O${S.gcsComp.o} V${S.gcsComp.v} M${S.gcsComp.m})` : "") : "—"}`
     ].join(" · ")]);
-    F.push(["Cardiovascular", S.hc.cv || "—"]);
-    F.push(["Respiratorio", S.hc.resp || "—"]);
-    F.push(["Abdomen", S.hc.abd || "—"]);
-    F.push(["Neurológico", S.hc.neuro || "—"]);
+    const exam = (k) => [S.hc[k], ...itemsEx().filter((it) => it.hc === k).map(respTxt)].filter(Boolean).join(". ") || "—";
+    F.push(["Cardiovascular", exam("cv")]);
+    F.push(["Respiratorio", exam("resp")]);
+    F.push(["Abdomen", exam("abd")]);
+    F.push(["Neurológico", exam("neuro")]);
 
     let dxTxt = "—", tto = [], meds = [];
     if (enDomicilio() && dx) {
@@ -418,6 +575,9 @@
     F.push(["Medicación y descartables utilizados", [...meds, ...desc].join(" · ") || "—"]);
 
     const obs = [];
+    obs.push(xabTxt());
+    const otrosEx = respuestas(itemsEx().filter((it) => !it.hc)); if (otrosEx.length) obs.push(otrosEx.join(". "));
+    const esx = escalasTxt(); if (esx) obs.push("Escalas: " + esx);
     if (rojas.length) obs.push("Criterios de traslado: " + rojas.map((b) => b.texto).join("; "));
     if (amarillas.length) obs.push("Precauciones: " + amarillas.map((b) => b.texto).join("; "));
     if (S.override) obs.push("Manejo domiciliario pese a criterio de traslado: decisión médica.");
@@ -429,6 +589,7 @@
     return F;
   }
   function conductaTxt() {
+    if (!S.flujo) return "Sin cierre";
     if (S.flujo === "derivacion") return "Traslado";
     return S.override ? "Domicilio pese a criterio de traslado" : "Domicilio";
   }
@@ -448,24 +609,128 @@
       tildadas("rojo").map((b) => b.texto).join("; "), tildadas("amarillo").map((b) => b.texto).join("; "),
       conductaTxt(), S.hc.paciente, S.hc.intern, meds.join("; "), falt.join("; "),
       S.hc.rcp ? "Sí" : "No", S.hc.ecg ? "Sí" : "No",
-      S.v.ta, S.v.fc, S.v.fr, S.v.sat, S.v.temp, S.v.gluc, S.v.gcs, META.version,
+      S.v.ta, S.v.fc, S.v.fr, S.v.sat, S.v.temp, S.v.gluc, S.v.gcs, "v" + META.version,
       esNino() ? "Pediátrico" : (S.pac.tipo === "adulto" || S.hc.edad ? "Adulto" : ""), S.pac.kg, S.pac.emb ? "Sí" : "",
-      S.horas.llegada, S.horas.salida, S.horas.destino
+      S.horas.llegada, S.horas.salida, S.horas.destino,
+      S.texto, xabTxt(), escalasTxt()
     ];
     return fila.map((x) => String(x == null ? "" : x).replace(/[\t\r\n]+/g, " ").trim());
   }
-  function guardarRegistro() {
-    if (!S.flujo || !S.caseId) return false;
+  /* La atención se registra sola mientras se usa: no hay que guardarla al final de la guardia.
+     Cada cambio actualiza su fila (mismo ID) y se envía a la planilla tras 20 s sin cambios. */
+  let tReg = null;
+  function registrarAuto(ya) {
+    if (!S.caseId || !S.motivo) return false;
     const fila = filaRegistro();
     const i = REG.findIndex((r) => r[0] === S.caseId);
-    if (i >= 0) REG[i] = fila; else REG.push(fila);
+    if (i >= 0) { if (REG[i].join("\t") === fila.join("\t")) return true; REG[i] = fila; } else REG.push(fila);
     saveReg();
-    setTimeout(() => enviarPendientes(false), 300);
+    clearTimeout(tReg); tReg = setTimeout(() => enviarPendientes(false), ya ? 300 : 20000);
     return true;
+  }
+  const XAB = [
+    ["X", "Hemorragia exanguinante", ["u_x"]],
+    ["A", "Vía aérea", ["u_a"]],
+    ["B", "Ventilación", ["u_b", "u_fr", "u_sat"]],
+    ["C", "Circulación", ["u_tas", "u_fc"]],
+    ["D", "Neurológico: AVDI, Glasgow, glucemia", ["u_gcs", "u_d", "u_gluc"]],
+    ["E", "Exposición y temperatura", ["u_e", "u_temp", "u_hipot"]]
+  ];
+  function xabTxt() {
+    const alt = XAB.map(([k, , ids]) => [k, ids.filter((id) => S.banderas.has(id))]).filter(([, ids]) => ids.length);
+    if (alt.length) return "XABCDE alterado: " + alt.map(([k, ids]) => `${k} (${ids.map((id) => U.find((u) => u.id === id).texto).join("; ")})`).join(" · ");
+    return S.xab.ok ? `XABCDE sin alteraciones${S.xab.t ? " (" + S.xab.t + ")" : ""}` : "";
   }
   const tsv = (filas) => filas.map((f) => f.join("\t")).join("\n");
 
   const textoHC = () => camposHC().map(([k, v]) => `${k.toUpperCase()}: ${v}`).join("\n");
+  const hhmm = (d = new Date()) => `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+
+  /* ------------------------------------------------------------ piezas de la evaluación */
+  function xabHTML() {
+    const crit = tildadas("rojo").filter((b) => U.some((u) => u.id === b.id));
+    return `<section class="xab"><div class="xabh"><p class="label">Evaluación primaria · XABCDE</p>
+        <button type="button" class="btn sm ${S.xab.ok ? "" : "primary"}" data-act="xabok">${S.xab.ok ? `✓ Sin alteraciones ${esc(S.xab.t)}` : "Sin alteraciones"}</button></div>
+      ${XAB.map(([k, t, ids]) => {
+        const alt = ids.some((id) => S.banderas.has(id));
+        const abierto = S.xab.open === k || alt;
+        return `<div class="xr${alt ? " alt" : S.xab.ok ? " ok" : ""}"><button type="button" class="xrh" data-act="xab" data-k="${k}" aria-expanded="${abierto}"><b>${k}</b><span>${esc(t)}</span><em>${alt ? "Alterado" : S.xab.ok ? "Normal" : "Tocá si hay hallazgos"}</em></button>
+          ${abierto ? `<div class="group">${ids.map((id) => flagHTML(U.find((u) => u.id === id))).join("")}${k === "D" ? `<button type="button" class="btn sm" data-act="escala" data-k="cincinnati">Escala de Cincinnati</button>` : ""}</div>` : ""}</div>`;
+      }).join("")}
+      ${crit.length ? `<div class="alert" role="alert"><p class="k">Paciente crítico: cargar y llevar</p><p>No demorar el traslado con procedimientos no esenciales: lo que falta se hace en ruta [PHTLS].</p><div class="row-btns"><button class="btn danger sm" data-act="evaluar">Trasladar ahora</button></div></div>` : ""}
+    </section>`;
+  }
+  function itemHTML(it) {
+    const v = S.g[it.id];
+    if (it.r === "tx") return `<label class="qi"><span class="qt">${esc(it.q)}</span><input data-gq="${it.id}" type="text" autocomplete="off" placeholder="${esc(it.ph || "")}" value="${esc(v || "")}"></label>`;
+    if (it.r === "sn") return `<div class="qi sn"><span class="qt">${esc(it.q)}</span><div class="qb">${["Sí", "No"].map((o) => `<button type="button" data-act="gq" data-id="${it.id}" data-val="${o}" aria-pressed="${v === o}"${(o === "Sí" && it.si) || (o === "No" && it.no) ? ' class="fl"' : ""}>${o}</button>`).join("")}</div>${it.txt && v === "Sí" ? `<input class="qd" data-gq="${it.id}_t" type="text" autocomplete="off" placeholder="${esc(it.txt)}" value="${esc(S.g[it.id + "_t"] || "")}">` : ""}${it.id === "a_alerg" && v === "Sí" ? `<span class="hint">Se cruza con la medicación del maletín.</span>` : ""}</div>`;
+    const sel = Array.isArray(v) ? v : v ? [v] : [];
+    return `<div class="qi op"><span class="qt">${esc(it.q)}</span><div class="qo">${it.ops.map((o) => `<button type="button" data-act="gq" data-id="${it.id}" data-val="${esc(o)}" aria-pressed="${sel.includes(o)}"${it.fl && it.fl[o] ? ' class="fl"' : ""}>${esc(o)}</button>`).join("")}</div></div>`;
+  }
+  const cerrados = new Set();
+  function bloque(id, titulo, its, cuerpo) {
+    const n = its.filter((it) => respTxt(it)).length;
+    return `<details class="guia" data-bl="${id}"${cerrados.has(id) ? "" : " open"}><summary><span>${titulo}</span><em>${n}/${its.length}</em></summary><div class="gb">${cuerpo}</div></details>`;
+  }
+  function escBtn(k) {
+    const e = ESC[k]; if (!e) return "";
+    const r = S.esc[k] && S.esc[k].usada ? evalEscala(k) : (k === "news2" ? evalEscala(k) : null);
+    return `<button type="button" class="escb ${r ? r.nivel : ""}" data-act="escala" data-k="${k}"><b>${esc(e.t)}</b><span>${r ? esc(r.txt) : "Abrir"}</span></button>`;
+  }
+  function guiaHTML() {
+    const g = G(), p = protocolo();
+    const letra = (l) => { const its = itemsLetra(l.k); return its.length ? `<div class="gl"><b class="glk">${l.k}</b><div class="gli"><span class="glt">${esc(l.t)}</span>${its.map(itemHTML).join("")}</div></div>` : ""; };
+    const sampleIts = window.SAMPLE.flatMap((l) => itemsLetra(l.k));
+    let html = bloque("sample", "Interrogatorio · SAMPLE", sampleIts, window.SAMPLE.map(letra).join(""));
+    if (g.dolor) html += bloque("opqrst", "Dolor · OPQRST", itemsOpqrst(), window.OPQRST.map((l) => `<div class="gl"><b class="glk">${l.k}</b><div class="gli">${l.items.map(itemHTML).join("")}</div></div>`).join(""));
+    if (itemsEsp().length) html += bloque("esp", `Preguntas clave · ${esc(p.corto)}`, itemsEsp(), itemsEsp().map(itemHTML).join(""));
+    const escs = (g.escalas || []).map((e) => e.k);
+    if (itemsEx().length || escs.length) html += bloque("ex", "Constatar", itemsEx(), itemsEx().map(itemHTML).join("") + (escs.length ? `<div class="escs">${escs.map(escBtn).join("")}</div>` : ""));
+    if (g.nota) html += `<div class="alert warn"><p>${esc(g.nota)}</p></div>`;
+    return html;
+  }
+
+  /* ------------------------------------------------------------ escalas en hoja inferior */
+  function escalaBody(k) {
+    const e = ESC[k], r = S.esc[k] || {}, res = evalEscala(k);
+    let h = e.como ? `<p class="hint">${esc(e.como)}</p>` : "";
+    if (e.tipo === "items") h += `<div class="group">${e.items.map((it, i) => `<label class="flag ${typeof it[1] === "string" ? (it[1] === "A" ? "rojo" : "amarillo") : "rojo"}"><input type="checkbox" data-act="escI" data-k="${k}" data-i="${i}" ${(r.sel || []).includes(i) ? "checked" : ""}><span class="box" aria-hidden="true"></span><span class="ft">${esc(it[0])}${typeof it[1] === "string" ? ` <em class="autot">${it[1] === "A" ? "riesgo alto" : "riesgo mediano"}</em>` : ""}</span></label>`).join("")}</div>`;
+    if (e.tipo === "select") h += `<div class="rass">${e.ops.map(([v, t]) => `<button type="button" data-act="escS" data-k="${k}" data-val="${v}" aria-pressed="${r.v === v}"><b>${v > 0 ? "+" + v : v}</b><span>${esc(t)}</span></button>`).join("")}</div>`;
+    if (e.tipo === "ortost") {
+      const o = r.o || {};
+      const f = (c, l) => `<label>${l}<input data-ort="${c}" data-k="${k}" type="text" inputmode="numeric" autocomplete="off" value="${esc(o[c] || "")}"></label>`;
+      h += `<p class="label">Acostado</p><div class="calc">${f("tas1", "TAS")}${f("fc1", "FC")}</div><p class="label">De pie (1–3 min)</p><div class="calc">${f("tas2", "TAS")}${f("fc2", "FC")}</div>
+        <button type="button" class="btn sm" data-act="ortSint" data-k="${k}" aria-pressed="${!!o.sint}">${o.sint ? "✓ " : ""}Mareo o síntomas al pararse</button>`;
+    }
+    if (e.tipo === "news2") {
+      const n = news2();
+      h += n ? `<div class="cmp">${n.p.map(([l, v, pt]) => `<div class="row"><span class="st ${pt >= 3 ? "no" : pt ? "alt" : "ok"}">${pt}</span><div><b>${esc(l)}</b><small>${esc(String(v))}</small></div></div>`).join("")}</div>${n.faltan ? `<p class="hint">Faltan ${n.faltan} parámetro${n.faltan > 1 ? "s" : ""}: cargalos en signos vitales para el puntaje completo.</p>` : ""}
+        <button type="button" class="btn sm" data-act="o2" aria-pressed="${!!S.v.o2}">${S.v.o2 ? "✓ Con O₂ suplementario" : "Aire ambiente (tocá si tiene O₂)"}</button>`
+        : `<p class="hint">${esNino() || S.pac.emb ? "NEWS2 no se usa en niños ni embarazadas." : "Cargá al menos 3 signos vitales (FR, SatO₂, TAS, FC, Glasgow, temperatura)."}</p>`;
+    }
+    h += `<div id="escRes">${res ? `<div class="gsum ${res.nivel}"><b>${esc(res.txt)}</b></div>` : ""}</div>`;
+    h += S.motivo ? `<button type="button" class="btn primary" data-act="hojaX">Listo</button><p class="hint">El resultado queda en la historia clínica y marca las banderas que correspondan.</p>` : `<button type="button" class="btn" data-act="hojaX">Cerrar</button><p class="hint">Sin atención abierta: el resultado no se guarda.</p>`;
+    return h + `<p class="hint">Fuente: ${esc(e.fuente)}</p>`;
+  }
+  function abrirEscala(k) {
+    const e = ESC[k]; if (!e) return;
+    if (e.tipo === "ficha") { go("f-" + e.ficha); return; }
+    S.esc[k] = S.esc[k] || {};
+    if (k === "qsofa" && !S.esc[k].sel) { const q = qsofaVitales(); if (q) S.esc[k].sel = q.map((x, i) => (x ? i : -1)).filter((i) => i >= 0); }
+    if (S.motivo && e.tipo !== "news2") S.esc[k].usada = S.esc[k].usada || !!evalEscala(k);
+    const h = $("#hoja");
+    h.innerHTML = `<div class="hoja-bg" data-act="hojaX"></div>
+      <section class="hoja-p" role="dialog" aria-modal="true" aria-labelledby="hojaT">
+        <header><h2 id="hojaT">${esc(e.t)}</h2><button type="button" class="back" data-act="hojaX" aria-label="Cerrar">×</button></header>
+        <div class="hoja-b" id="escB" data-k="${k}">${escalaBody(k)}</div>
+      </section>`;
+    h.hidden = false; document.body.classList.add("lock");
+  }
+  function escalaCambio(k) {
+    if (S.motivo) { S.esc[k].usada = true; aplicarGuia(); }
+    const b = $("#escB"); if (b) { const y = b.scrollTop; b.innerHTML = escalaBody(k); b.scrollTop = y; }
+    guardarCaso();
+  }
 
   /* ------------------------------------------------------------ piezas de UI */
   function header(titulo, { back = true, chip = true, extra = "", logo = false } = {}) {
@@ -538,7 +803,10 @@
     document.body.classList.add("lock");
     const btn = h.querySelector(".hoja-p .back"); if (btn) btn.focus();
   }
-  function cerrarHoja() { pararContador(); pantallaEncendida(location.hash === "#soporte"); const h = $("#hoja"); if (h) { h.hidden = true; h.innerHTML = ""; } document.body.classList.remove("lock"); }
+  function cerrarHoja() {
+    const eraEscala = !!$("#escB");
+    pararContador(); pantallaEncendida(location.hash === "#soporte");
+    if (eraEscala && actual() === "triage") setTimeout(() => { aplicarGuia(); refrescarTriage(); const gw = $("#guiaW"); if (gw) gw.innerHTML = guiaHTML(); }, 0); const h = $("#hoja"); if (h) { h.hidden = true; h.innerHTML = ""; } document.body.classList.remove("lock"); }
 
   /* ------------------------------------------------------------ contador de FC y FR */
   const CT = { k: null, dur: 30, t0: 0, taps: [], timer: null, fin: false, audio: null };
@@ -627,8 +895,10 @@
     const t = $$("input[data-v]");
     t.forEach((i) => { if (document.activeElement !== i) i.value = S.v[i.dataset.v] || ""; });
     const arm = $(".armv"); if (arm) arm.textContent = S.v.arm || "—";
-    if (actual() === "triage") { aplicarVitales(); refrescarTriage(); } else refrescarHC();
+    marcarMedicion();
+    if (actual() === "triage") { aplicarVitales(); refrescarTriage(); } else if (actual() === "herramientas") { const iw = $("#ixW"); if (iw) iw.innerHTML = indicesHTML(); } else refrescarHC();
   }
+  function marcarMedicion() { if (!S.motivo) S.vt = Date.now(); }
 
   function flagHTML(b) {
     return `<label class="flag ${b.nivel}"><input type="checkbox" data-act="flag" data-id="${b.id}" ${S.banderas.has(b.id) ? "checked" : ""}><span class="box" aria-hidden="true"></span><span class="ft">${esc(b.texto)}${S.auto.has(b.id) ? ` <em class="autot">automático</em>` : ""}</span></label>`;
@@ -641,18 +911,26 @@
   /* ------------------------------------------------------------ vistas */
   const V = {};
 
+  const FREC = {
+    adulto: ["hipoglucemia", "hiperglucemia", "hta", "hipotension", "mareo", "tec_adulto", "caida", "convulsion", "agitacion", "dolor_general", "metrorragia", "calor", "torax", "disnea", "abdomen", "sincope"],
+    nino: ["fiebre_ped", "trauma_escuela", "laringitis", "bronquiolitis", "conv_febril", "diarrea_ped", "convulsion", "herida"]
+  };
   function resultados() {
-    const res = buscar(S.texto);
-    const L = esNino() ? [...P.filter((p) => p.ped), ...P.filter((p) => !p.ped)] : [...P.filter((p) => !p.ped), ...P.filter((p) => p.ped)];
-    const boton = (p) => `<button class="motivo${res.some((r) => r.p.id === p.id) ? " match" : ""}" data-act="motivo" data-id="${p.id}">${esc(p.titulo)}</button>`;
+    const res = buscar(S.texto).slice(0, 5);
     const escrito = S.texto.trim().length >= 3;
+    const boton = (p) => `<button class="motivo" data-act="motivo" data-id="${p.id}">${esc(p.titulo)}</button>`;
+    const frec = (esNino() ? FREC.nino : FREC.adulto).map((id) => P.find((p) => p.id === id)).filter(Boolean);
+    let letra = "";
+    const az = [...P].sort((a, b) => a.titulo.localeCompare(b.titulo, "es")).map((p) => {
+      const l = norm(p.titulo).charAt(0).toUpperCase(); const h = l !== letra ? `<p class="azl">${l}</p>` : ""; letra = l; return h + boton(p);
+    }).join("");
     return `${escrito ? `<div class="sugeridos">
-        ${res.length ? `<p class="label" style="margin:8px 0 0">${res.length > 1 ? "¿Cuál se parece más?" : "Coincidencia"}</p>${res.slice(0, 3).map((r) => `<button class="sug" data-act="motivo" data-id="${r.p.id}"><b>${esc(r.p.titulo)}</b><span>Protocolo específico</span></button>`).join("")}` : `<p class="hint" style="margin-top:8px">No hay un protocolo específico para "${esc(S.texto)}".</p>`}
-        <button class="sug gen" data-act="motivo" data-id="general"><b>Manejo general por aparato</b><span>Para "${esc(S.texto)}": banderas por sistema y tratamiento sintomático</span></button>
+        ${res.length ? res.map((r, i) => `<button class="sug${i === 0 ? " top" : ""}" data-act="motivo" data-id="${r.p.id}"><b>${esc(r.p.titulo)}</b><span>${r.p.ped ? "Pediátrico" : "Adulto"}${i === 0 ? " · Enter para elegir" : ""}</span></button>`).join("") : `<p class="hint" style="margin-top:8px">No encontré un motivo para "${esc(S.texto)}". Probá con otra palabra o usá el manejo general.</p>`}
+        <button class="sug gen" data-act="motivo" data-id="general"><b>Manejo general por aparato</b><span>Si ninguno se parece a "${esc(S.texto)}"</span></button>
       </div>` : ""}
-      <p class="label" style="margin-top:22px">Motivos frecuentes</p>
-      <div class="motivos">${L.slice(0, 10).map(boton).join("")}</div>
-      <details class="mas"${escrito && res.some((r) => L.indexOf(r.p) >= 10) ? " open" : ""}><summary>Más motivos (${L.length - 10})</summary><div class="motivos">${L.slice(10).map(boton).join("")}</div></details>`;
+      <p class="label" style="margin-top:22px">${esNino() ? "Frecuentes en niños" : "Frecuentes"}</p>
+      <div class="motivos">${frec.map(boton).join("")}</div>
+      <details class="mas"><summary>Todos los motivos, de la A a la Z (${P.length})</summary><div class="motivos az">${az}</div></details>`;
   }
 
   V.inicio = () => {
@@ -669,7 +947,7 @@
       ${S.codigo === "rojo" ? `<div class="alert"><p class="k" style="font-size:18px">Código rojo</p><p>Evaluación primaria XABCDE. No responde y no respira: <b>RCP</b>.</p><div class="row-btns"><button class="btn danger sm" data-act="go" data-to="soporte">Abrir RCP y soporte vital</button></div></div>` : ""}
       <section>
         <p class="label">Motivo de consulta</p>
-        <div class="search"><input id="q" type="search" autocomplete="off" placeholder="Escribí el motivo (ej. falta de aire)" value="${esc(S.texto)}" aria-label="Escribir motivo de consulta"></div>
+        <div class="search"><input id="q" type="search" autocomplete="off" placeholder="Escribí el motivo como te lo pasaron" value="${esc(S.texto)}" aria-label="Escribir motivo de consulta"></div>
         <div class="pac">${pacienteHTML()}</div>
         <div id="res">${resultados()}</div>
       </section>
@@ -687,15 +965,34 @@
       ${p.general ? `<div class="alert warn"><p class="k">Manejo general · sin protocolo específico</p><p>Elegí el o los aparatos comprometidos para ver sus banderas. No reemplaza un protocolo específico: aplicá tu criterio.</p></div>
       <section><p class="label">Aparatos comprometidos</p><div class="chips">${window.SISTEMAS.map((x) => `<button data-act="sis" data-id="${x.id}" aria-pressed="${S.sistemas.has(x.id)}">${esc(x.nombre)}</button>`).join("")}</div></section>` : ""}
       <div class="horas mini">${horaHTML("llegada", "Hora de llegada")}</div>
-      <section><p class="label">Signos vitales</p>${vitalesHTML()}<p class="hint" style="margin-top:8px">${esNino() ? "Pediátrico: la FC y la FR no se marcan solas porque dependen de la edad. Tocá FC o FR para ver la tabla. La TA usa el umbral de hipotensión pediátrico." : "Al cargarlos se marcan solas las banderas que correspondan. Podés destildarlas."}</p></section>
+      <div id="xabW">${xabHTML()}</div>
+      <section><p class="label">Signos vitales</p>${vitalesHTML()}<div id="ixW">${indicesHTML()}</div><p class="hint" style="margin-top:8px">${esNino() ? "Pediátrico: la FC y la FR no se marcan solas porque dependen de la edad. Tocá FC o FR para ver la tabla." : "Al cargarlos se marcan solas las banderas que correspondan. Podés destildarlas."}</p></section>
+      <div id="guiaW">${guiaHTML()}</div>
       <div class="legend"><span><i class="sq rojo"></i>Roja: criterio de traslado según guía</span><span><i class="sq amarillo"></i>Amarilla: domicilio con conducta específica</span></div>
       ${rojasP.length ? `<section><p class="label">Banderas rojas · ${esc(p.corto)}</p><div class="group">${rojasP.map(flagHTML).join("")}</div></section>` : ""}
       ${amarP.length ? `<section><p class="label">Banderas amarillas · ${esc(p.corto)}</p><div class="group">${amarP.map(flagHTML).join("")}</div></section>` : ""}
-      <section><p class="label">Generales (todos los motivos)</p><div class="group">${U.map(flagHTML).join("")}</div></section>
-      <p class="hint">Fuentes: ${p.fuentes.join(" · ")}</p>
+      <section><p class="label">Contexto</p><div class="group">${flagHTML(U.find((u) => u.id === "u_red"))}</div></section>
+      <p class="hint">Las respuestas y las escalas marcan solas las banderas (dicen "automático"). Fuentes: ${p.fuentes.join(" · ")} · PHTLS (XABCDE, SAMPLE, OPQRST)</p>
     </main>
     ${bar(barTriage())}`;
   };
+
+  function preavisoTxt() {
+    const p = protocolo(), v = S.v;
+    const edad = S.hc.edad ? `${S.hc.edad} años` : esNino() ? "niño" : "adulto";
+    const sx = S.hc.sexo === "F" ? ", mujer" : S.hc.sexo === "M" ? ", varón" : "";
+    const ini = S.g.s_inicio || S.g.tc_hora || S.g.te_hora || "s/d";
+    const mec = respuestas(itemsLetra("E")).join("; ");
+    const hall = [...tildadas("rojo").map((b) => b.texto), escalasTxt()].filter(Boolean).join("; ");
+    return [
+      `A (edad): ${edad}${sx}${S.pac.emb ? ", embarazada" : ""}.`,
+      `T (tiempo): inicio ${ini}; llegada del móvil ${S.horas.llegada || "s/d"}.`,
+      `M (motivo/mecanismo): ${p.titulo}${S.texto && norm(S.texto) !== norm(p.titulo) ? ` (${S.texto})` : ""}${mec ? ". " + mec : ""}.`,
+      `I (hallazgos): ${hall || "s/d"}.`,
+      `S (signos vitales): TA ${v.ta || "s/d"}, FC ${v.fc || "s/d"}, FR ${v.fr || "s/d"}, SatO₂ ${v.sat ? v.sat + " %" : "s/d"}${v.o2 ? " con O₂" : ""}, Glasgow ${v.gcs || "s/d"}, glucemia ${v.gluc || "s/d"}.`,
+      `T (tratamiento): ${S.hc.obs || "según lo realizado"}. Llegada estimada: ___ min.`
+    ].join("\n");
+  }
 
   V.derivacion = () => {
     const p = protocolo();
@@ -706,6 +1003,9 @@
       <section><p class="label">Qué indica la guía</p>${conductaList(rojas)}</section>
       ${amar.length ? `<section><p class="label">Además, precauciones</p>${conductaList(amar)}</section>` : ""}
       <section><p class="label">Soporte vital para el traslado</p><ul class="list">${p.soporte.map((t) => `<li>${esc(t)}</li>`).join("")}</ul></section>
+      <section><p class="label">Preaviso al hospital · ATMIST</p><pre class="preaviso">${esc(preavisoTxt())}</pre>
+        <div class="row-btns"><button class="btn sm" data-act="copiarPre">Copiar preaviso</button></div>
+        <textarea id="prePlano" class="hc" hidden aria-label="Preaviso"></textarea></section>
       <div class="row-btns"><button class="btn sm" data-act="go" data-to="soporte">RCP · Soporte vital</button></div>
       <section>
         <p class="label">Decisión médica</p>
@@ -743,7 +1043,7 @@
         ${esPed() && kgPac() ? `<p class="hint">Dosis calculadas para ${esc(S.pac.kg)} kg. Verificá la concentración del envase.</p>` : ""}
         ${esNino() && !esPed() ? `<div class="alert warn"><p class="k">Paciente pediátrico</p><p>Las dosis de este protocolo son de adulto. Calculá por peso en la ficha de medicación pediátrica${S.pac.kg ? ` (${esc(S.pac.kg)} kg cargados)` : ""}.</p><div class="row-btns"><button class="btn sm primary" data-act="go" data-to="f-ped">Abrir medicación pediátrica</button></div></div>` : `<p class="hint">Tildado = administrado (pasa a la historia clínica). Los marcados "según cuadro" solo si corresponde.</p>
         ${S.pac.emb ? `<div class="alert warn"><p><b>Embarazada:</b> cada fármaco indica si se puede usar. Los contraindicados quedan sin tildar.</p></div>` : ""}
-        ${meds.length ? meds.map((r) => r.bloq ? `<div class="rx off"><b>${esc(nombreFarmaco(r.f))}</b><span class="note">No indicado a esta edad. ${esc(r.edadTxt || "")}.</span></div>` : `<div class="rx${r.cond ? " cond" : ""}"><label class="given"><input type="checkbox" data-act="dado" data-key="${r.key}" ${dado(r) ? "checked" : ""}><span class="box" aria-hidden="true"></span><b>${esc(nombreFarmaco(r.f))}</b>${r.cond ? `<em class="condt">según cuadro</em>` : ""}</label><span class="pres">${esc(presentacion(r.f))}</span><span>${esc(r.dosis)}</span>${r.estado === "alt" ? `<span class="note">Sustituye a ${esc(nombreFarmaco(r.original))} (sin stock).</span>` : ""}${r.nota ? `<span class="note">${esc(r.nota)}</span>` : ""}${embInfo(r.f) ? `<span class="embn ${embInfo(r.f)[0]}">Embarazo: ${esc(embInfo(r.f)[1])}</span>` : ""}</div>`).join("")
+        ${meds.length ? meds.map((r) => r.alergia ? `<div class="rx off"><b>${esc(nombreFarmaco(r.f))}</b><span class="note">Alergia declarada (${esc(S.g.a_alerg_t || "")}): no administrar.</span></div>` : r.bloq ? `<div class="rx off"><b>${esc(nombreFarmaco(r.f))}</b><span class="note">No indicado a esta edad. ${esc(r.edadTxt || "")}.</span></div>` : `<div class="rx${r.cond ? " cond" : ""}"><label class="given"><input type="checkbox" data-act="dado" data-key="${r.key}" ${dado(r) ? "checked" : ""}><span class="box" aria-hidden="true"></span><b>${esc(nombreFarmaco(r.f))}</b>${r.cond ? `<em class="condt">según cuadro</em>` : ""}</label><span class="pres">${esc(presentacion(r.f))}</span><span>${esc(r.dosis)}</span>${r.estado === "alt" ? `<span class="note">Sustituye a ${esc(nombreFarmaco(r.original))} (sin stock).</span>` : ""}${r.nota ? `<span class="note">${esc(r.nota)}</span>` : ""}${embInfo(r.f) ? `<span class="embn ${embInfo(r.f)[0]}">Embarazo: ${esc(embInfo(r.f)[1])}</span>` : ""}</div>`).join("")
           : `<p class="hint">${dx.tratamiento.length ? "Ningún fármaco indicado está en el maletín. Ver bloque 3." : "Este cuadro no requiere medicación del maletín."}</p>`}`}
       </div></article>
       <article class="block"><h2><span class="n">2</span>Indicaciones al paciente</h2><div class="body">
@@ -777,7 +1077,7 @@
     const hall = (k, l) => `<div class="hall"><div class="hall-h"><span>${l}</span><button class="btn sm ghost" data-act="normal" data-k="${k}">Normal</button></div><textarea data-hc="${k}" rows="2" aria-label="${l}">${esc(S.hc[k])}</textarea></div>`;
     return `${header("Historia clínica")}
     <main class="wrap">
-      <p class="hint">Mismo orden que la planilla en papel. Los datos filiatorios (nombre, DNI, domicilio, obra social) se completan a mano.</p>
+      <p class="hint">Mismo orden que la planilla en papel. El interrogatorio, el examen y las escalas que cargaste en la evaluación ya están incluidos: acá solo se completa lo que falte. Los datos filiatorios van a mano. La atención se registra sola en la planilla.</p>
       <section class="form"><p class="label">Paciente</p><div class="pac">${pacienteHTML()}</div></section>
       <section class="form"><p class="label">Horarios</p><div class="horas">${horaHTML("llegada", "Llegada")}${horaHTML("salida", "Salida")}${horaHTML("destino", "Llegada a destino")}</div></section>
       <section class="form"><p class="label">Antec. de enferm. y medicación actual</p><textarea data-hc="antec" rows="2" aria-label="Antecedentes y medicación actual" placeholder="Ej. HTA, DBT2. Enalapril 10 mg/día">${esc(S.hc.antec)}</textarea></section>
@@ -793,7 +1093,7 @@
       <section><p class="label">Para transcribir a la planilla</p><div class="sheet" id="hcPrev">${previewHC()}</div>
         <textarea id="hcPlano" class="hc" hidden aria-label="Texto plano de la historia clínica">${esc(textoHC())}</textarea></section>
     </main>
-    ${bar(`<div class="bar3"><button class="btn" data-act="copiar">Copiar HC</button><button class="btn" data-act="guardarReg">Guardar en registro</button><button class="btn primary" data-act="nuevo">Nueva HC</button></div>`)}`;
+    ${bar(`<button class="btn" data-act="copiar">Copiar HC</button><button class="btn primary" data-act="nuevo">Nueva HC</button>`)}`;
   };
   function horaHTML(k, l) {
     return `<div class="hora"><span>${esc(l)}</span><input type="time" data-hora="${k}" value="${esc(S.horas[k])}" aria-label="${esc(l)}"><button type="button" class="btn sm" data-act="ahora" data-k="${k}">Ahora</button></div>`;
@@ -806,7 +1106,7 @@
     const url = planilla();
     return `${header("Registro", { chip: false })}
     <main class="wrap">
-      <p class="hint">Cada atención queda como una fila sin datos personales. ${urlEnvio() ? "Con el envío automático activado, se mandan solas a la planilla cuando hay señal." : "Copiá las pendientes y pegalas en tu planilla de Google Sheets, en la primera fila vacía de la hoja Registro, o activá el envío automático más abajo."}</p>
+      <p class="hint">Cada atención se registra sola mientras la usás, como una fila sin datos personales. ${urlEnvio() ? "Con el envío automático activado, se manda sola a la planilla cuando hay señal." : "Activá el envío automático más abajo, o copiá las pendientes y pegalas en la hoja Registro."}</p>
       <div class="alert ${REG.length ? "warn" : "ok"}"><p class="k">${REG.length ? `${REG.length} ${REG.length > 1 ? "atenciones pendientes" : "atención pendiente"}` : "Nada pendiente"}</p><p>${REG.length ? (urlEnvio() ? (envioError ? "No se pudieron enviar todavía. Quedan guardadas y se reintenta solo." : navigator.onLine ? "Se están enviando." : "Sin señal: se envían cuando vuelva.") : "Se guardan en este teléfono hasta que las pegues.") : "Todo pasado a la planilla."}${urlEnvio() ? ` · ${ultimoEnvio()}` : ""}</p>
         ${urlEnvio() && (REG.length || NOTAS.length) ? `<div class="row-btns"><button class="btn sm primary" data-act="enviar"${enviando ? " disabled" : ""}>${enviando ? "Enviando…" : "Enviar ahora"}</button></div>` : ""}</div>
       ${REG.length ? `<div class="group">${REG.map((r) => `<div class="drug"><div class="t"><b>${esc(r[7])}</b><small>${esc(r[1].split("-").reverse().join("/"))} ${esc(r[2])} · ${esc(r[15])}${r[10] ? " · " + esc(r[10]) : ""}</small></div><button class="del" data-act="delReg" data-id="${esc(r[0])}" aria-label="Quitar atención">×</button></div>`).join("")}</div>
@@ -900,12 +1200,22 @@
   const rango = (a, b, u) => (Math.abs(a - b) < 1e-9 ? `${fmt(a)} ${u}` : `${fmt(a)}–${fmt(b)} ${u}`);
   const minus = (t) => t.charAt(0).toLowerCase() + t.slice(1);
 
-  V.fichas = () => `${header("Fichas", { chip: false, back: false })}
+  V.herramientas = () => {
+    const p = protocolo();
+    const tool = (act, k, t, sub, extra = "") => `<button type="button" class="tool" data-act="${act}" ${act === "go" ? `data-to="${k}"` : `data-k="${k}"`} ${extra}><b>${esc(t)}</b><span>${esc(sub)}</span></button>`;
+    const ficha = (id) => { const f = FIC.find((x) => x.id === id); return f ? tool("go", "f-" + id, f.titulo, f.sub) : ""; };
+    return `${header("Herramientas", { chip: false, back: false })}
     <main class="wrap">
-      <p class="hint">Consulta rápida para tener a mano. Las dosis se cruzan con tu maletín.</p>
-      <div class="fcards">${FIC.map((f) => `<button class="fcard ${f.tono}" data-act="go" data-to="f-${f.id}"><b>${esc(f.titulo)}</b><span>${esc(f.sub)}</span></button>`).join("")}</div>
-      <p class="disclaimer">Borrador para validar con la Dirección Médica. Contenido propio basado en las fuentes citadas en cada ficha.</p>
+      <div class="alert ${p ? "ok" : "warn"}"><p>${p ? `Atención abierta: <b>${esc(p.titulo)}</b>. Lo que midas acá se carga en esa atención.` : "Sin atención abierta. Lo que midas queda listo para la próxima atención durante 30 minutos."}</p></div>
+      <section><p class="label">Signos vitales</p>${vitalesHTML()}<div id="ixW">${indicesHTML()}</div>
+        <div class="tools">${tool("contar", "fc", "Contar FC", "Tocando en cada latido")}${tool("contar", "fr", "Contar FR", "Tocando en cada respiración")}${tool("vinfo", "gcs", "Glasgow", "Calculadora O·V·M")}${tool("vinfo", "ta", "Tensión arterial", "Técnica y valores por edad")}</div></section>
+      <section><p class="label">Escalas</p><div class="tools">${["cincinnati", "cchr", "pecarn", "qsofa", "news2", "ortost", "rass"].map((k) => tool("escala", k, ESC[k].t, ESC[k].fuente)).join("")}</div></section>
+      <section><p class="label">Cálculos</p><div class="tools">${["got", "ped", "sri"].map(ficha).join("")}</div></section>
+      <section><p class="label">Referencia</p><div class="tools">${["tec", "pree", "emb"].map(ficha).join("")}</div></section>
+      <p class="disclaimer">Borrador para validar con la Dirección Médica. Cada herramienta cita su fuente.</p>
     </main>`;
+  };
+  V.fichas = V.herramientas;
 
   function fichaActual() { const id = location.hash.replace("#f-", ""); return FIC.find((f) => f.id === id); }
   V.ficha = () => {
@@ -1102,11 +1412,11 @@
   /* ------------------------------------------------------------ navegación */
   let prev = "inicio";
   function go(screen) { if (location.hash !== "#" + screen) location.hash = screen; else render(); }
-  const TAB_DE = { inicio: "atencion", triage: "atencion", derivacion: "atencion", domicilio: "atencion", hc: "atencion", registro: "atencion", soporte: "rcp", fichas: "fichas", ficha: "fichas", maletin: "maletin" };
+  const TAB_DE = { inicio: "atencion", triage: "atencion", derivacion: "atencion", domicilio: "atencion", hc: "atencion", registro: "atencion", soporte: "rcp", fichas: "herramientas", herramientas: "herramientas", ficha: "herramientas", maletin: "maletin" };
   let ultimaAtencion = "inicio";
   function actual() {
     const h = location.hash.replace("#", "") || "inicio";
-    if (h.startsWith("f-")) return fichaActual() ? "ficha" : "fichas";
+    if (h.startsWith("f-")) return fichaActual() ? "ficha" : "herramientas";
     if (!V[h]) return "inicio";
     if (["triage", "derivacion", "domicilio", "hc"].includes(h) && !protocolo()) return "inicio";
     if (h === "derivacion" && !tildadas("rojo").length) return "triage";
@@ -1127,7 +1437,7 @@
   }
   function back() {
     const s = actual();
-    if (s === "ficha") return go("fichas");
+    if (s === "ficha") return go("herramientas");
     if (s === "registro") return go(prev === s ? "inicio" : prev);
     if (s === "hc") return go(S.flujo || "triage");
     if (s === "domicilio") return go(S.override ? "derivacion" : "triage");
@@ -1135,8 +1445,8 @@
     go("inicio");
   }
   function nuevo() {
-    if (guardarRegistro()) toast("Atención guardada en el registro");
-    borrarCaso(); estadoInicial(); go("inicio");
+    if (registrarAuto(true)) toast("Atención registrada");
+    borrarCaso(); S.vt = 0; estadoInicial(); go("inicio");
   }
 
   function syncPals() { if (esNino()) { if (S.hc.edad) S.pals.edad = S.hc.edad; if (S.pac.kg) S.pals.kg = S.pac.kg; } }
@@ -1176,6 +1486,9 @@
       if (!S.auto.has(i.dataset.id) && ft) ft.remove();
     });
     const nav = $(".bar .wrap"); if (nav && actual() === "triage") nav.innerHTML = barTriage();
+    const xw = $("#xabW"); if (xw) xw.innerHTML = xabHTML();
+    const iw = $("#ixW"); if (iw) iw.innerHTML = indicesHTML();
+    const gw = $("#guiaW"); if (gw && !gw.contains(document.activeElement)) gw.innerHTML = guiaHTML();
   }
   function refrescarHC() {
     const pv = $("#hcPrev"); if (pv) pv.innerHTML = previewHC();
@@ -1187,7 +1500,7 @@
     const b = e.target.closest("[data-act]");
     if (!b) return;
     const a = b.dataset.act;
-    if (a === "flag" || a === "stock" || a === "stockP" || a === "dado" || a === "tecf" || a === "embStock") return;
+    if (a === "flag" || a === "stock" || a === "stockP" || a === "dado" || a === "tecf" || a === "embStock" || a === "escI") return;
     switch (a) {
       case "back": back(); break;
       case "go": go(b.dataset.to); break;
@@ -1224,8 +1537,8 @@
       case "recargar": location.reload(); break;
       case "tab": {
         const t = b.dataset.tab;
-        const destino = { atencion: ultimaAtencion, rcp: "soporte", fichas: "fichas", maletin: "maletin" }[t];
-        if (TAB_DE[actual()] === t && t !== "atencion") { if (actual() === "ficha") go("fichas"); else window.scrollTo(0, 0); }
+        const destino = { atencion: ultimaAtencion, rcp: "soporte", herramientas: "herramientas", maletin: "maletin" }[t];
+        if (TAB_DE[actual()] === t && t !== "atencion") { if (actual() === "ficha") go("herramientas"); else window.scrollTo(0, 0); }
         else go(destino);
         break;
       }
@@ -1238,7 +1551,7 @@
         $("#gtotal").innerHTML = gcsTotalHTML(); break;
       }
       case "gusar": {
-        const c = S.gcsComp; S.v.gcs = String(c.o + c.v + c.m);
+        const c = S.gcsComp; S.v.gcs = String(c.o + c.v + c.m); marcarMedicion();
         cerrarHoja();
         const box = $("input[data-v=gcs]");
         if (box) { box.value = S.v.gcs; const em = box.parentElement.querySelector(".gcomp"); if (em) em.textContent = `O${c.o} V${c.v} M${c.m}`; else box.insertAdjacentHTML("afterend", ` <em class="gcomp">O${c.o} V${c.v} M${c.m}</em>`); }
@@ -1249,7 +1562,7 @@
       case "ctstop": ctTerminar(); break;
       case "ctreset": pararContador(); Object.assign(CT, { t0: 0, taps: [], fin: false }); pintarContador(); break;
       case "ctusar": {
-        const k = CT.k; S.v[k] = b.dataset.v; cerrarHoja();
+        const k = CT.k; S.v[k] = b.dataset.v; marcarMedicion(); cerrarHoja();
         const inp = $(`input[data-v="${k}"]`); if (inp) inp.value = S.v[k];
         vitalCambio(); toast(`${k === "fc" ? "FC" : "FR"} ${S.v[k]} cargada`); break;
       }
@@ -1270,9 +1583,32 @@
           .catch(() => { envioError = "no responde: revisá el link y que la implementación sea para «Cualquier persona»"; render(true); toast("No se pudo conectar"); });
         break;
       }
+      case "gq": {
+        const id = b.dataset.id, val = b.dataset.val;
+        const it = todasPreguntas().find((x) => x.id === id) || {};
+        if (it.multi) { const arr = Array.isArray(S.g[id]) ? S.g[id] : []; S.g[id] = arr.includes(val) ? arr.filter((x) => x !== val) : [...arr, val]; }
+        else S.g[id] = S.g[id] === val ? "" : val;
+        aplicarGuia();
+        const gw = $("#guiaW"); if (gw) gw.innerHTML = guiaHTML();
+        refrescarTriage();
+        if (it.r === "sn" && it.txt && S.g[id] === "Sí") { const d = $(`input[data-gq="${id}_t"]`); if (d) d.focus(); }
+        break;
+      }
+      case "xab": S.xab.open = S.xab.open === b.dataset.k ? "" : b.dataset.k; { const xw = $("#xabW"); if (xw) xw.innerHTML = xabHTML(); } break;
+      case "xabok": S.xab.ok = !S.xab.ok; S.xab.t = S.xab.ok ? hhmm() : ""; S.xab.open = ""; { const xw = $("#xabW"); if (xw) xw.innerHTML = xabHTML(); } break;
+      case "escala": abrirEscala(b.dataset.k); break;
+      case "escS": { const k = b.dataset.k; S.esc[k].v = Number(b.dataset.val); escalaCambio(k); break; }
+      case "ortSint": { const k = b.dataset.k; S.esc[k].o = Object.assign({}, S.esc[k].o, { sint: !(S.esc[k].o || {}).sint }); escalaCambio(k); break; }
+      case "o2": {
+        S.v.o2 = !S.v.o2;
+        if (actual() === "triage") { aplicarVitales(); refrescarTriage(); } else { const iw = $("#ixW"); if (iw) iw.innerHTML = indicesHTML(); }
+        const eb = $("#escB"); if (eb) eb.innerHTML = escalaBody(eb.dataset.k);
+        break;
+      }
+      case "copiarPre": copiar(preavisoTxt(), "prePlano", "Preaviso copiado"); break;
       case "gotModo": FS.got.modo = b.dataset.val; render(true); break;
       case "gotTu": FS.got.tu = b.dataset.val; render(true); break;
-      case "motivo": S.caseId = S.caseId || "A" + Date.now().toString(36).toUpperCase(); S.inicio = S.inicio || Date.now(); S.motivo = b.dataset.id; if (protocolo() && protocolo().ped && !S.pac.tipo) S.pac.tipo = "nino"; S.sistemas.clear(); S.banderas.clear(); S.auto.clear(); S.off.clear(); S.override = false; S.dx = null; aplicarVitales(); go("triage"); break;
+      case "motivo": S.caseId = S.caseId || "A" + Date.now().toString(36).toUpperCase(); S.inicio = S.inicio || Date.now(); S.motivo = b.dataset.id; if (protocolo() && protocolo().ped && !S.pac.tipo) S.pac.tipo = "nino"; S.sistemas.clear(); S.banderas.clear(); S.auto.clear(); S.off.clear(); S.autoG.clear(); S.override = false; S.dx = null; aplicarVitales(); go("triage"); break;
       case "evaluar":
         S.override = false; S.dx = null;
         if (tildadas("rojo").length) { S.hc.paciente = ""; go("derivacion"); }
@@ -1284,7 +1620,7 @@
       case "dx": S.dx = b.dataset.id; render(true); setTimeout(() => { const el = $("#b1"); if (el) el.scrollIntoView({ behavior: "smooth", block: "start" }); }, 30); break;
       case "copiar": copiar(textoHC()); break;
       case "nuevo": nuevo(); break;
-      case "guardarReg": if (guardarRegistro()) toast("Guardado en el registro"); break;
+      case "guardarReg": if (registrarAuto(true)) toast("Registrada"); break;
       case "copiarReg": copiar(tsv(REG), "regPlano", `${REG.length} fila${REG.length > 1 ? "s" : ""} copiada${REG.length > 1 ? "s" : ""}`).then(() => { const v = $("#vaciar"); if (v) v.hidden = false; }); break;
       case "copiarEnc": copiar(COLUMNAS.join("\t"), "regPlano", "Encabezados copiados"); break;
       case "vaciar0": $("#vaciar").hidden = true; break;
@@ -1320,6 +1656,12 @@
     } else if (a === "tecf") { t.checked ? S.tec.f.add(t.dataset.id) : S.tec.f.delete(t.dataset.id); const y = window.scrollY; $("#tecOut").innerHTML = tecOut(); window.scrollTo(0, y); }
     else if (a === "embStock") { FS.embStock = t.checked; $("#embOut").innerHTML = embOut(); }
     else if (a === "dado") { S.dados[t.dataset.key] = t.checked; }
+    else if (a === "escI") {
+      const k = t.dataset.k, i = Number(t.dataset.i), sel = new Set(S.esc[k].sel || []);
+      t.checked ? sel.add(i) : sel.delete(i);
+      S.esc[k].sel = [...sel].sort((x, y) => x - y);
+      escalaCambio(k);
+    }
     else if (a === "stock") { M.estado[t.dataset.id] = t.checked; saveMaletin(); }
     else if (a === "stockP") { const d = M.propios.find((x) => x.id === t.dataset.id); if (d) d.enStock = t.checked; saveMaletin(); }
   });
@@ -1337,9 +1679,17 @@
       if (k === "tas" || k === "tad") S.v.ta = S.v.tas || S.v.tad ? `${S.v.tas}/${S.v.tad}` : "";
       if (k === "tas" && val.length === 3) { const d = $("input[data-v=tad]"); if (d && !d.value) d.focus(); }
       if (k === "gcs") { S.gcsComp = null; const em = t.parentElement.querySelector(".gcomp"); if (em) em.remove(); }
-      if (actual() === "triage") { aplicarVitales(); refrescarTriage(); } else refrescarHC();
+      marcarMedicion();
+      if (actual() === "triage") { aplicarVitales(); refrescarTriage(); } else if (actual() === "herramientas") { const iw = $("#ixW"); if (iw) iw.innerHTML = indicesHTML(); } else refrescarHC();
     }
     else if (t.dataset.hc) { S.hc[t.dataset.hc] = t.value; refrescarHC(); }
+    else if (t.dataset.gq) { S.g[t.dataset.gq] = t.value; }
+    else if (t.dataset.ort) {
+      const k = t.dataset.k, v = t.value.replace(/[^0-9]/g, ""); if (v !== t.value) t.value = v;
+      S.esc[k].o = Object.assign({}, S.esc[k].o, { [t.dataset.ort]: v });
+      if (S.motivo) { S.esc[k].usada = true; aplicarGuia(); }
+      const r = evalEscala(k), box = $("#escRes"); if (box) box.innerHTML = r ? `<div class="gsum ${r.nivel}"><b>${esc(r.txt)}</b></div>` : "";
+    }
     else if (t.dataset.pac) {
       if (t.dataset.pac === "edad") {
         S.hc.edad = t.value.replace(/[^0-9.,]/g, "");
@@ -1391,6 +1741,7 @@
   });
 
   window.addEventListener("hashchange", () => { cerrarHoja(); render(); });
+  document.addEventListener("toggle", (e) => { const d = e.target; if (d.dataset && d.dataset.bl) { if (d.open) cerrados.delete(d.dataset.bl); else cerrados.add(d.dataset.bl); } }, true);
   document.addEventListener("keydown", (e) => { if (e.key === "Escape") cerrarHoja(); });
 
   /* ------------------------------------------------------------ arranque */
@@ -1399,12 +1750,12 @@
     const ic = {
       atencion: '<path d="M9 3h6v3H9z"/><path d="M8 4.5H5.5v16h13v-16H16"/><path d="M12 10v6M9 13h6"/>',
       rcp: '<path d="M12 20.5s-7.5-4.6-7.5-10.4A4.1 4.1 0 0 1 12 7.3a4.1 4.1 0 0 1 7.5 2.8c0 5.8-7.5 10.4-7.5 10.4z"/><path d="M4 13h3.5l1.8-3 2.6 5.5 1.8-2.5H20"/>',
-      fichas: '<rect x="3.5" y="7.5" width="13" height="13" rx="2"/><path d="M7.5 4h11a2 2 0 0 1 2 2v11"/><path d="M7 12h6M7 15.5h4"/>',
+      herramientas: '<path d="M14.5 6.5a3.5 3.5 0 0 0 4.6 4.6L21 13l-2 2-1.9-1.9a3.5 3.5 0 0 0-4.6-4.6"/><path d="M13 11l-8.5 8.5a1.4 1.4 0 0 1-2-2L11 9"/><path d="M4 4l3 1 1 3-1 1-3-1-1-3z"/>',
       maletin: '<rect x="3" y="7" width="18" height="13" rx="2"/><path d="M9 7V5.5A1.5 1.5 0 0 1 10.5 4h3A1.5 1.5 0 0 1 15 5.5V7"/><path d="M12 10.5v6M9 13.5h6"/>'
     };
     const nav = document.createElement("nav");
     nav.className = "tabs"; nav.setAttribute("aria-label", "Secciones");
-    nav.innerHTML = `<div class="tabs-in">${[["atencion", "Atención"], ["rcp", "RCP"], ["fichas", "Fichas"], ["maletin", "Maletín"]].map(([k, l]) => `<button data-act="tab" data-tab="${k}"><svg viewBox="0 0 24 24" aria-hidden="true">${ic[k]}</svg><span>${l}</span></button>`).join("")}</div>`;
+    nav.innerHTML = `<div class="tabs-in">${[["atencion", "Atención"], ["herramientas", "Herramientas"], ["rcp", "RCP"], ["maletin", "Maletín"]].map(([k, l]) => `<button data-act="tab" data-tab="${k}"><svg viewBox="0 0 24 24" aria-hidden="true">${ic[k]}</svg><span>${l}</span></button>`).join("")}</div>`;
     document.body.appendChild(nav);
   }
   if (!document.getElementById("hoja")) { const h = document.createElement("div"); h.id = "hoja"; h.hidden = true; document.body.appendChild(h); }

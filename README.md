@@ -23,6 +23,8 @@ sirena/   (todos los archivos en la raíz, sin carpetas: así se suben fácil de
 ├── protocolos.js            10 motivos base: banderas, soporte, diagnósticos, tratamientos
 ├── protocolos_ampliados.js  20 motivos frecuentes más
 ├── protocolos_pediatricos.js 5 motivos pediátricos con dosis por peso
+├── protocolos_frecuentes.js 9 motivos frecuentes (v2.0) y banderas XABCDE
+├── guias.js                 Guía por motivo: SAMPLE, OPQRST, preguntas clave, constatar y escalas
 ├── apps_script.gs           Script para la planilla (envío automático; no lo usa la app)
 ├── manejo_general.js        Banderas por aparato y tratamiento sintomático
 ├── maletin.js               Catálogo editable del maletín
@@ -56,11 +58,21 @@ Primera vez en el teléfono: cargar el maletín real (pantalla Maletín) y pegar
 
 **Prueba local**: `python3 -m http.server 8080` en la carpeta y abrir `http://localhost:8080`.
 
+## Cómo se evalúa (versión 2.0)
+
+1. **Motivo**: se escribe como lo pasaron en el despacho; el buscador entiende sinónimos y errores de tipeo. Abajo están los frecuentes y la lista completa de la A a la Z.
+2. **Evaluación primaria XABCDE** [PHTLS]: todo normal con un toque; tocar una letra muestra sus hallazgos. Si hay uno rojo, aparece "Paciente crítico: cargar y llevar".
+3. **Signos vitales** con NEWS2 e índice de shock calculados solos.
+4. **Guía del motivo**: interrogatorio SAMPLE, OPQRST si hay dolor, preguntas clave, qué constatar y escalas (Cincinnati, regla canadiense de TC, PECARN, qSOFA, NEWS2, ortostatismo, RASS). Las respuestas marcan solas las banderas que correspondan.
+5. **Decisión**: traslado (con preaviso ATMIST para copiar) o domicilio.
+
+Todo lo cargado arma la historia clínica en el orden del papel. Las alergias declaradas bloquean el fármaco del maletín.
+
 ## Pestañas
 
 - **Atención**: código, motivo, banderas, domicilio o traslado, historia clínica y registro.
 - **RCP**: soporte vital (BLS, ACLS, PALS, PHTLS).
-- **Fichas**: consulta rápida. Medicación pediátrica por peso, secuencia rápida de intubación, TEC leve pediátrico (PECARN), preeclampsia y eclampsia (MSAL 2010), fármacos del maletín en el embarazo, calculadora de goteo (ml/h, micro y macrogotas, infusión de drogas por dosis).
+- **Herramientas**: signos vitales, contador de FC y FR, Glasgow y escalas sueltas, sin necesidad de abrir una atención (lo medido queda listo para la próxima atención durante 30 minutos); cálculos (goteo, pediatría por peso, intubación) y referencia. Medicación pediátrica por peso, secuencia rápida de intubación, TEC leve pediátrico (PECARN), preeclampsia y eclampsia (MSAL 2010), fármacos del maletín en el embarazo, calculadora de goteo (ml/h, micro y macrogotas, infusión de drogas por dosis).
 - **Maletín**: fármacos disponibles. Todas las dosis se cruzan con esta lista.
 
 ## Contador de FC y FR
@@ -87,7 +99,7 @@ La pantalla *Historia clínica* sigue el orden de la planilla en papel: antecede
 
 ## Registro de atenciones
 
-Cada atención se guarda en el teléfono como una fila sin datos personales (al tocar *Nuevo caso* o *Guardar en registro*). En la pantalla *Registro*, *Copiar filas* copia todas las pendientes: se pegan en la primera fila vacía de la hoja **Registro** de la planilla de Google Sheets y cada dato cae en su columna. La hoja **Resumen** se calcula sola (motivos frecuentes, % de traslados, domicilio pese a criterio de traslado, diagnósticos con CIE-10, fármacos faltantes). Después de pegar, *Vaciar pendientes* las borra del teléfono.
+Cada atención se registra sola mientras se usa, como una fila sin datos personales: no hay que guardarla al final de la guardia. En la pantalla *Registro*, *Copiar filas* copia todas las pendientes: se pegan en la primera fila vacía de la hoja **Registro** de la planilla de Google Sheets y cada dato cae en su columna. La hoja **Resumen** se calcula sola (motivos frecuentes, % de traslados, domicilio pese a criterio de traslado, diagnósticos con CIE-10, fármacos faltantes). Después de pegar, *Vaciar pendientes* las borra del teléfono.
 
 **Envío automático (opcional)**: en la planilla, *Extensiones → Apps Script*, pegar el contenido de `apps_script.gs` y guardar. *Implementar → Nueva implementación → Aplicación web*, ejecutar como *yo*, acceso *Cualquier persona*. Copiar el link que termina en `/exec` y pegarlo en Sirena → Registro → *Envío automático*. Desde ahí, cada atención guardada y cada nota se envían solas cuando hay señal; si no hay, quedan en el teléfono y se reintenta al volver la conexión. Si se vuelve a guardar la misma atención, se actualiza su fila en vez de duplicarla. El link queda solo en el teléfono.
 
