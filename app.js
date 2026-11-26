@@ -100,7 +100,7 @@
       override: false, dx: null,
       v: S.vt && Date.now() - S.vt < 30 * 60000 ? S.v : { ta: "", tas: "", tad: "", fc: "", fr: "", sat: "", temp: "", gluc: "", gcs: "", arm: "", o2: false },
       vt: S.vt && Date.now() - S.vt < 30 * 60000 ? S.vt : 0,
-      g: {}, esc: {}, xab: { ok: false, t: "", open: "" }, autoG: new Set(),
+      g: {}, esc: {}, xab: { ok: false, t: "", open: "" }, autoG: new Set(), dxSel: null, dxOtro: "",
       dados: {},
       hc: { edad: "", sexo: "", antec: "", cv: "", resp: "", abd: "", neuro: "", desc: new Set(), descOtro: "", obs: "", rcp: false, ecg: false, paciente: "", intern: "" },
       gcsComp: null,
@@ -304,7 +304,8 @@
   function tokCoincide(tk, w) {
     if (tk === w) return 2;
     if (w.length >= 5 && tk.length >= 5 && (tk.startsWith(raiz(w)) || w.startsWith(raiz(tk)))) return 1.5;
-    if (w.length >= 5 && tk.length >= 4 && lev(tk, w) <= (w.length >= 8 ? 2 : 1)) return 1.2;
+    // Un error de tipeo; dos solo en palabras largas y si empiezan igual ("confusion" ≠ "convulsion").
+    if (w.length >= 5 && tk.length >= 4) { const dd = lev(tk, w); if (dd <= 1 || (dd === 2 && w.length >= 11 && tk.slice(0, 4) === w.slice(0, 4))) return 1.2; }
     return 0;
   }
   function coincide(tokens, frase, kw) {
@@ -361,7 +362,7 @@
         u_temp: t !== null && t >= 40,
         u_hipot: t !== null && t > 0 && t < 35,
         u_gcs: gcs !== null && gcs >= 3 && gcs < 15,
-        u_gluc: num(v.gluc) !== null && num(v.gluc) > 0 && num(v.gluc) < 70
+        u_gluc: v.gluc === "LO" || (num(v.gluc) !== null && num(v.gluc) > 0 && num(v.gluc) < 70)
       };
     }
     return {
@@ -372,7 +373,7 @@
       u_temp: t !== null && t >= 40,
       u_hipot: t !== null && t > 0 && t < 35,
       u_gcs: gcs !== null && gcs >= 3 && gcs < 15,
-      u_gluc: num(v.gluc) !== null && num(v.gluc) > 0 && num(v.gluc) < 70
+      u_gluc: v.gluc === "LO" || (num(v.gluc) !== null && num(v.gluc) > 0 && num(v.gluc) < 70)
     };
   }
   function aplicarVitales() {
@@ -484,6 +485,8 @@
     const mapa = {}; (g.escalas || []).forEach((e) => { mapa[e.k] = e.flag; });
     Object.keys(S.esc).forEach((k) => { const r = evalEscala(k); if (r && r.nivel === "rojo" && S.esc[k].usada) marcar(mapa[k] || (ESC[k] || {}).flag); });
     if (mapa.qsofa) { const q = qsofaVitales(); if (q && q.filter(Boolean).length >= 2) marcar(mapa.qsofa); }
+    if (S.v.gluc === "HI") { marcar("g7"); marcar("dh6"); }
+    if (S.v.gluc === "LO") marcar("dh6");
     const a = g.auto || {};
     const si = shockIdx(); if (a.shock && si !== null && si >= 1) marcar(a.shock);
     const n = news2(); if (n) { if (a.news7 && n.total >= 7) marcar(a.news7); else if (a.news5 && n.total >= 5) marcar(a.news5); }
@@ -536,6 +539,35 @@
   function dosisCorta(t) { return String(t).split(/\.\s|\. /)[0].replace(/\.$/, ""); }
   const enDomicilio = () => S.flujo === "domicilio";
 
+  /* Diagnósticos presuntivos: sindrómico primero; lo que motiva el traslado, "a descartar". */
+  function presuntivos() {
+    const p = protocolo(), dx = dxActual(), out = [], vistos = new Set();
+    const add = (k, t, c) => { const key = norm(t); if (!t || vistos.has(key)) return; vistos.add(key); out.push({ k, t, c }); };
+    if (!p) return out;
+    if (enDomicilio() && dx) add("dx:" + dx.id, dx.nombre, dx.cie10);
+    const sind = p.general ? [S.texto ? `${S.texto.charAt(0).toUpperCase()}${S.texto.slice(1)} a estudiar` : "Cuadro a estudiar", "R69"] : (window.DX_SINDROME[p.id] || [p.titulo, p.cie10]);
+    const omitir = (window.DX_OMITIR || {})[p.id] || [];
+    const sosp = tildadas("rojo").filter((b) => !omitir.includes(b.id)).map((b) => [b.id, window.DX_SOSPECHA[b.id]]).filter(([, x]) => x);
+    const amar = tildadas("amarillo").filter((b) => !omitir.includes(b.id)).map((b) => [b.id, window.DX_SOSPECHA[b.id]]).filter(([, x]) => x);
+    if (!(enDomicilio() && dx)) add("sind", sind[0], sind[1]);
+    sosp.forEach(([id, [t, c]]) => add(id, t, c));
+    amar.forEach(([id, [t, c]]) => add(id, t, c));
+    return out;
+  }
+  function presuntivosElegidos() {
+    const todos = presuntivos();
+    const sel = S.dxSel ? todos.filter((x) => S.dxSel.includes(x.k)) : todos.slice(0, 3);
+    return [...sel.map((x) => `${x.t} (CIE-10 ${x.c})`), ...(S.dxOtro.trim() ? [S.dxOtro.trim()] : [])];
+  }
+  function presuntivosHTML() {
+    const todos = presuntivos();
+    const elegidos = S.dxSel || todos.slice(0, 3).map((x) => x.k);
+    let n = 0;
+    return `<div class="dxp">${todos.map((x) => { const on = elegidos.includes(x.k); if (on) n++; return `<button type="button" class="dxpi" data-act="dxp" data-k="${esc(x.k)}" aria-pressed="${on}"><b>${on ? n : "+"}</b><span>${esc(x.t)}</span><em>CIE-10 ${esc(x.c)}</em></button>`; }).join("")}</div>
+      <input data-dxotro="1" type="text" autocomplete="off" placeholder="Otro diagnóstico presuntivo" value="${esc(S.dxOtro)}" aria-label="Otro diagnóstico presuntivo">
+      <p class="hint">Redactados en forma sindrómica; lo que justifica el traslado figura como "a descartar". Tocá para sacar o agregar: el orden es el de la lista.</p>`;
+  }
+
   function camposHC() {
     const p = protocolo();
     const dx = dxActual();
@@ -552,7 +584,7 @@
     F.push(["Signos vitales", [
       `TA ${v.ta || "—"}`, `FC ${v.fc || "—"}`, `FR ${v.fr || "—"}`, `ARM ${v.arm || "—"}`,
       `SatO₂ ${v.sat ? v.sat + " %" : "—"}`, `T° ax ${v.temp ? v.temp + " °C" : "—"}`,
-      `Glucemia ${v.gluc ? v.gluc + " mg/dl" : "—"}`, `Glasgow ${v.gcs ? v.gcs + "/15" + (S.gcsComp ? ` (O${S.gcsComp.o} V${S.gcsComp.v} M${S.gcsComp.m})` : "") : "—"}`
+      `Glucemia ${v.gluc === "HI" ? "HI (por encima del rango del glucómetro)" : v.gluc === "LO" ? "LO (por debajo del rango del glucómetro)" : v.gluc ? v.gluc + " mg/dl" : "—"}`, `Glasgow ${v.gcs ? v.gcs + "/15" + (S.gcsComp ? ` (O${S.gcsComp.o} V${S.gcsComp.v} M${S.gcsComp.m})` : "") : "—"}`
     ].join(" · ")]);
     const exam = (k) => [S.hc[k], ...itemsEx().filter((it) => it.hc === k).map(respTxt)].filter(Boolean).join(". ") || "—";
     F.push(["Cardiovascular", exam("cv")]);
@@ -561,14 +593,14 @@
     F.push(["Neurológico", exam("neuro")]);
 
     let dxTxt = "—", tto = [], meds = [];
+    const dxp = presuntivosElegidos();
     if (enDomicilio() && dx) {
-      dxTxt = `${dx.nombre} (CIE-10 ${dx.cie10})`;
       meds = medicacionDada(dx).map((r) => `${nombreFarmaco(r.f)} ${dosisCorta(r.dosis)}`);
       tto = [...meds, ...recetaPedTxt(dx).map((t) => `Rp/ ${t}`), ...dx.receta.map((t) => `Rp/ ${t}`), ...dx.medidas, ...dx.indicaciones];
     } else if (!enDomicilio() && p) {
-      dxTxt = `${p.titulo} — criterio de traslado`;
       tto = ["Traslado. Soporte durante el traslado según protocolo."];
     }
+    if (dxp.length) dxTxt = dxp.map((t, i) => `${i + 1}. ${t}`).join(" ");
     F.push(["Diagnóstico presuntivo", dxTxt]);
     F.push(["Tto. e indicaciones", tto.length ? tto.join(" · ") : "—"]);
     const desc = [...S.hc.desc, ...(S.hc.descOtro ? [S.hc.descOtro] : [])];
@@ -605,7 +637,7 @@
       h >= 8 && h < 20 ? "Día" : "Noche", S.codigo ? CODIGOS[S.codigo].label : "",
       S.hc.edad, S.hc.sexo, p ? (p.general ? `Otro: ${S.texto}` : p.titulo) : "", p ? p.cie10 || "R69" : "",
       p && p.general ? "Manejo general" : "Protocolo específico",
-      dom ? dx.nombre : (S.flujo === "derivacion" ? "Criterio de traslado" : ""), dom ? dx.cie10 : "", dom ? dx.snomed : "",
+      presuntivosElegidos().join("; "), (presuntivos()[0] || {}).c || "", dom ? dx.snomed : "",
       tildadas("rojo").map((b) => b.texto).join("; "), tildadas("amarillo").map((b) => b.texto).join("; "),
       conductaTxt(), S.hc.paciente, S.hc.intern, meds.join("; "), falt.join("; "),
       S.hc.rcp ? "Sí" : "No", S.hc.ecg ? "Sí" : "No",
@@ -761,7 +793,7 @@
     return `<div class="vitals">
       <div class="vf ta">${lab("ta", "TA")}<div class="tain">${inp("tas", "TA sistólica")}<span aria-hidden="true">/</span>${inp("tad", "TA diastólica")}</div></div>
       ${f("fc", "FC")}${f("fr", "FR")}${f("sat", "SatO₂")}
-      ${f("temp", "T° axilar", "decimal")}${f("gluc", "Glucemia")}
+      ${f("temp", "T° axilar", "decimal")}<div class="vf">${lab("gluc", "Glucemia")}${/^(HI|LO)$/.test(S.v.gluc) ? `<button type="button" class="armv glhl" data-act="glFuera" data-val="">${S.v.gluc}<small>tocá para borrar</small></button>` : `${inp("gluc", "Glucemia")}<div class="glbt"><button type="button" data-act="glFuera" data-val="HI">HI</button><button type="button" data-act="glFuera" data-val="LO">LO</button></div>`}</div>
       <div class="vf">${lab("gcs", "Glasgow")}${inp("gcs", "Glasgow")}${gcsTxt}</div>
       <div class="vf">${lab("arm", "ARM")}<button type="button" class="armv" data-act="vinfo" data-k="arm">${esc(S.v.arm || "—")}</button></div>
     </div>
@@ -912,7 +944,7 @@
   const V = {};
 
   const FREC = {
-    adulto: ["hipoglucemia", "hiperglucemia", "hta", "hipotension", "mareo", "tec_adulto", "caida", "convulsion", "agitacion", "dolor_general", "metrorragia", "calor", "torax", "disnea", "abdomen", "sincope"],
+    adulto: ["hipoglucemia", "hiperglucemia", "hta", "hipotension", "mareo", "sensorio", "tec_adulto", "caida", "convulsion", "agitacion", "dolor_general", "metrorragia", "calor", "torax", "disnea", "abdomen", "sincope"],
     nino: ["fiebre_ped", "trauma_escuela", "laringitis", "bronquiolitis", "conv_febril", "diarrea_ped", "convulsion", "herida"]
   };
   function resultados() {
@@ -1090,6 +1122,7 @@
       <section class="form"><p class="label">Observaciones</p>${yn("rcp", "RCP")}${yn("ecg", "ECG")}<textarea data-hc="obs" rows="2" aria-label="Observaciones" placeholder="Otras observaciones">${esc(S.hc.obs)}</textarea></section>
       <section class="form"><p class="label">Paciente</p>${seg("paciente", PACIENTE)}</section>
       <section class="form"><p class="label">Internación / Derivación</p>${seg("intern", INTERNACION)}</section>
+      <section class="form"><p class="label">Diagnóstico presuntivo</p><div id="dxpW">${presuntivosHTML()}</div></section>
       <section><p class="label">Para transcribir a la planilla</p><div class="sheet" id="hcPrev">${previewHC()}</div>
         <textarea id="hcPlano" class="hc" hidden aria-label="Texto plano de la historia clínica">${esc(textoHC())}</textarea></section>
     </main>
@@ -1209,7 +1242,7 @@
       <div class="alert ${p ? "ok" : "warn"}"><p>${p ? `Atención abierta: <b>${esc(p.titulo)}</b>. Lo que midas acá se carga en esa atención.` : "Sin atención abierta. Lo que midas queda listo para la próxima atención durante 30 minutos."}</p></div>
       <section><p class="label">Signos vitales</p>${vitalesHTML()}<div id="ixW">${indicesHTML()}</div>
         <div class="tools">${tool("contar", "fc", "Contar FC", "Tocando en cada latido")}${tool("contar", "fr", "Contar FR", "Tocando en cada respiración")}${tool("vinfo", "gcs", "Glasgow", "Calculadora O·V·M")}${tool("vinfo", "ta", "Tensión arterial", "Técnica y valores por edad")}</div></section>
-      <section><p class="label">Escalas</p><div class="tools">${["cincinnati", "cchr", "pecarn", "qsofa", "news2", "ortost", "rass"].map((k) => tool("escala", k, ESC[k].t, ESC[k].fuente)).join("")}</div></section>
+      <section><p class="label">Escalas</p><div class="tools">${["cincinnati", "cchr", "pecarn", "qsofa", "news2", "4at", "ortost", "rass"].map((k) => tool("escala", k, ESC[k].t, ESC[k].fuente)).join("")}</div></section>
       <section><p class="label">Cálculos</p><div class="tools">${["got", "ped", "sri"].map(ficha).join("")}</div></section>
       <section><p class="label">Referencia</p><div class="tools">${["tec", "pree", "emb"].map(ficha).join("")}</div></section>
       <p class="disclaimer">Borrador para validar con la Dirección Médica. Cada herramienta cita su fuente.</p>
@@ -1605,19 +1638,33 @@
         const eb = $("#escB"); if (eb) eb.innerHTML = escalaBody(eb.dataset.k);
         break;
       }
+      case "dxp": {
+        const k = b.dataset.k, todos = presuntivos();
+        const sel = S.dxSel ? [...S.dxSel] : todos.slice(0, 3).map((x) => x.k);
+        const i = sel.indexOf(k); if (i >= 0) sel.splice(i, 1); else sel.push(k);
+        S.dxSel = todos.map((x) => x.k).filter((x) => sel.includes(x));
+        $("#dxpW").innerHTML = presuntivosHTML(); refrescarHC(); break;
+      }
+      case "glFuera": {
+        S.v.gluc = b.dataset.val; marcarMedicion();
+        if (S.v.gluc === "HI") toast("HI: por encima del rango del glucómetro (habitualmente > 500–600 mg/dl)");
+        if (S.v.gluc === "LO") toast("LO: por debajo del rango del glucómetro: tratar como hipoglucemia");
+        if (actual() === "triage") { aplicarVitales(); render(true); } else render(true);
+        break;
+      }
       case "copiarPre": copiar(preavisoTxt(), "prePlano", "Preaviso copiado"); break;
       case "gotModo": FS.got.modo = b.dataset.val; render(true); break;
       case "gotTu": FS.got.tu = b.dataset.val; render(true); break;
       case "motivo": S.caseId = S.caseId || "A" + Date.now().toString(36).toUpperCase(); S.inicio = S.inicio || Date.now(); S.motivo = b.dataset.id; if (protocolo() && protocolo().ped && !S.pac.tipo) S.pac.tipo = "nino"; S.sistemas.clear(); S.banderas.clear(); S.auto.clear(); S.off.clear(); S.autoG.clear(); S.override = false; S.dx = null; aplicarVitales(); go("triage"); break;
       case "evaluar":
-        S.override = false; S.dx = null;
+        S.override = false; S.dx = null; S.dxSel = null;
         if (tildadas("rojo").length) { S.hc.paciente = ""; go("derivacion"); }
         else { S.hc.paciente = "Queda en domicilio"; S.hc.intern = ""; go("domicilio"); }
         break;
       case "override1": $("#confirm").hidden = false; $("#confirm .btn.primary").focus(); break;
       case "override0": $("#confirm").hidden = true; break;
       case "override2": S.override = true; S.dx = null; S.hc.paciente = "Queda en domicilio"; S.hc.intern = ""; go("domicilio"); break;
-      case "dx": S.dx = b.dataset.id; render(true); setTimeout(() => { const el = $("#b1"); if (el) el.scrollIntoView({ behavior: "smooth", block: "start" }); }, 30); break;
+      case "dx": S.dx = b.dataset.id; S.dxSel = null; render(true); setTimeout(() => { const el = $("#b1"); if (el) el.scrollIntoView({ behavior: "smooth", block: "start" }); }, 30); break;
       case "copiar": copiar(textoHC()); break;
       case "nuevo": nuevo(); break;
       case "guardarReg": if (registrarAuto(true)) toast("Registrada"); break;
@@ -1684,6 +1731,7 @@
     }
     else if (t.dataset.hc) { S.hc[t.dataset.hc] = t.value; refrescarHC(); }
     else if (t.dataset.gq) { S.g[t.dataset.gq] = t.value; }
+    else if (t.dataset.dxotro) { S.dxOtro = t.value; refrescarHC(); }
     else if (t.dataset.ort) {
       const k = t.dataset.k, v = t.value.replace(/[^0-9]/g, ""); if (v !== t.value) t.value = v;
       S.esc[k].o = Object.assign({}, S.esc[k].o, { [t.dataset.ort]: v });

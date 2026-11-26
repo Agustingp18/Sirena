@@ -24,6 +24,7 @@ sirena/   (todos los archivos en la raíz, sin carpetas: así se suben fácil de
 ├── protocolos_ampliados.js  20 motivos frecuentes más
 ├── protocolos_pediatricos.js 5 motivos pediátricos con dosis por peso
 ├── protocolos_frecuentes.js 9 motivos frecuentes (v2.0) y banderas XABCDE
+├── presuntivos.js           Diagnósticos presuntivos: sindrómico por motivo y sospechas por bandera, con CIE-10
 ├── guias.js                 Guía por motivo: SAMPLE, OPQRST, preguntas clave, constatar y escalas
 ├── apps_script.gs           Script para la planilla (envío automático; no lo usa la app)
 ├── manejo_general.js        Banderas por aparato y tratamiento sintomático
@@ -66,7 +67,7 @@ Primera vez en el teléfono: cargar el maletín real (pantalla Maletín) y pegar
 4. **Guía del motivo**: interrogatorio SAMPLE, OPQRST si hay dolor, preguntas clave, qué constatar y escalas (Cincinnati, regla canadiense de TC, PECARN, qSOFA, NEWS2, ortostatismo, RASS). Las respuestas marcan solas las banderas que correspondan.
 5. **Decisión**: traslado (con preaviso ATMIST para copiar) o domicilio.
 
-Todo lo cargado arma la historia clínica en el orden del papel. Las alergias declaradas bloquean el fármaco del maletín.
+Todo lo cargado arma la historia clínica en el orden del papel. Al final, la app propone hasta 3 diagnósticos presuntivos redactados en forma sindrómica, con lo que justifica el traslado como "a descartar" y su código CIE-10; se pueden sacar, agregar o escribir otro. Las alergias declaradas bloquean el fármaco del maletín.
 
 ## Pestañas
 

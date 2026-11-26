@@ -76,6 +76,12 @@
       t: "NEWS2", fuente: "Royal College of Physicians 2017", tipo: "news2",
       como: "Puntaje de gravedad con los signos vitales (adultos, no embarazadas). 0–4 bajo; 3 en un solo parámetro, revaluar pronto; 5–6 medio; 7 o más alto."
     },
+    "4at": {
+      t: "4AT: delirium", fuente: "Bellelli, Age Ageing 2014", tipo: "items",
+      como: "Detección rápida de delirium, también en pacientes con demencia. Marcar solo lo alterado; en AMT4 y atención, elegir una sola opción.",
+      items: [["Alerta: claramente somnoliento o agitado", 4], ["AMT4 (edad, fecha de nacimiento, lugar, año): 1 error", 1], ["AMT4: 2 o más errores o no evaluable", 2], ["Atención (meses del año al revés): llega a menos de 7 meses o se niega", 1], ["Atención: no puede empezar o no evaluable", 2], ["Cambio agudo o curso fluctuante (según quien lo conoce)", 4]],
+      interp: (p) => p >= 4 ? ["rojo", `${p} puntos: delirium probable.`] : p >= 1 ? ["amarillo", `${p} puntos: posible deterioro cognitivo.`] : ["verde", "0 puntos: delirium improbable."]
+    },
     pecarn: { t: "PECARN: TEC pediátrico", fuente: "Kuppermann, Lancet 2009", tipo: "ficha", ficha: "tec" }
   };
 
@@ -203,6 +209,17 @@
       esp: [sn("si_mel", "¿Materia fecal negra u otro sangrado?", { si: "si6" }), sn("si_post", "¿Movimientos o confusión prolongada después?", { si: "si7" })],
       ex: [op("si_ecg", "ECG", ["Normal", "Alterado", "No realizado"], { fl: { Alterado: "si3" } })],
       escalas: [{ k: "ortost" }]
+    },
+    sensorio: {
+      nota: "Causas reversibles a buscar (AEIOU-TIPS): Alcohol · Epilepsia, electrolitos, encefalopatía · Insulina (hipo o hiperglucemia) · Opioides y otros tóxicos · Uremia · Trauma y temperatura · Infección · Psiquiátrico · Shock, ACV, lesión ocupante.",
+      S: [op("se_ini", "Comienzo", ["Brusco (minutos u horas)", "Progresivo (días)", "Fluctuante"], { fl: { Fluctuante: "se7" } }), op("se_basal", "Comparado con su estado habitual", ["Está distinto", "Está igual que siempre"], { fl: { "Está igual que siempre": "se11" } }), sn("se_cef", "¿Cefalea, fiebre o vómitos?"), sn("se_conv", "¿Convulsionó?", { si: "se8" })],
+      M: [sn("se_med", "¿Benzodiacepinas, opioides, anticolinérgicos o medicación nueva?", { si: "se12" }), op("se_dbt", "Diabetes", ["No", "Con insulina", "Con hipoglucemiantes orales"])],
+      P: [op("se_hab", "Estado habitual", ["Lúcido e independiente", "Deterioro cognitivo leve", "Demencia"]), sn("se_org", "¿Epilepsia, ACV previo, insuficiencia renal o hepática?")],
+      L: [op("se_sust", "Sustancias", ["No", "Alcohol", "Drogas", "Abstinencia"], { multi: true, fl: { Alcohol: "se4", Drogas: "se4", Abstinencia: "se4" } })],
+      E: [sn("se_tec", "¿Golpe en la cabeza o caída?", { si: "se5" }), sn("se_co", "¿Brasero, estufa o calefón en ambiente cerrado, o convivientes con cefalea?", { si: "se4" }), sn("se_calor", "¿Exposición al calor?"), sn("se_blister", "¿Blísteres vacíos, frascos o jeringas en la escena?", { si: "se4" })],
+      ex: [op("se_pup", "Pupilas", ["Isocóricas reactivas", "Mióticas (puntiformes)", "Midriáticas", "Anisocoria"], { fl: { Anisocoria: "se2", "Mióticas (puntiformes)": "se4" }, hc: "neuro" }), op("se_foco", "Foco motor", ["No", "Sí"], { fl: { "Sí": "se2" }, hc: "neuro" }), op("se_nuca", "Rigidez de nuca", ["No", "Sí"], { fl: { "Sí": "se3" }, hc: "neuro" }), op("se_resp", "Respiración", ["Normal", "Lenta o superficial", "Rápida y profunda (Kussmaul)"], { fl: { "Lenta o superficial": "se4" }, hc: "resp" }), op("se_aliento", "Aliento", ["Sin olor", "Alcohol", "Cetósico"]), op("se_piel", "Piel", ["Sin lesiones", "Petequias o púrpura", "Signos de punción", "Ictericia"], { fl: { "Petequias o púrpura": "se3", "Signos de punción": "se4" } })],
+      escalas: [{ k: "cincinnati", flag: "se2" }, { k: "4at", flag: "se7" }, { k: "news2" }],
+      siGen: { m_acoag: "se5" }
     },
     torax: { dolor: true, ex: [op("tx_ecg", "ECG de 12 derivaciones", ["Normal", "Alterado", "No realizado"])] },
     abdomen: { dolor: true },

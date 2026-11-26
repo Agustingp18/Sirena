@@ -19,6 +19,7 @@
             pediátrico leve. Rev Argent Neurocir 2005;19.
    [MSAL-OBS]  Emergencia obstétrica: manual breve para la práctica clínica.
                Ministerio de Salud de la Nación, 2015.
+   [4AT]    Bellelli G y col., Age Ageing 2014: detección rápida de delirium.
    [MSAL-CALOR] Ministerio de Salud de la Nación: recomendaciones para evitar
                golpes de calor (grupos de riesgo y prevención).
    [MSAL-DENGUE] Guía MSAL para el equipo de salud: Dengue.
@@ -397,6 +398,47 @@
     }
   ];
 
+  /* ---------------------------------------------------------------- alteración del sensorio */
+  NUEVOS.push({
+    id: "sensorio", cie10: "R41.0", snomed: "",
+    titulo: "Confusión / alteración del sensorio",
+    corto: "Sensorio",
+    keywords: ["confusion", "confusión", "confuso", "confusa", "confundido", "confundida", "desorientado", "desorientada", "obnubilado", "obnubilada", "obnubilacion", "somnoliento", "somnolienta", "dormido", "no responde", "no reacciona", "no se despierta", "esta raro", "esta rara", "desvaria", "desvarío", "delira", "incoherente", "habla incoherencias", "deterioro del sensorio", "alteracion del sensorio", "sensorio", "perdido", "ido", "abombado", "abombada", "sopor", "estuporoso", "inconsciente"],
+    fuentes: ["ACLS", "PHTLS", "4AT", "SAME", "SAE"],
+    banderas: [
+      R("se1", "Glasgow ≤ 8 o no protege la vía aérea", "Posición lateral, aspiración, cánula y O₂. Preparar vía aérea avanzada. Traslado inmediato [PHTLS]."),
+      R("se2", "Foco neurológico, anisocoria o Cincinnati positiva", "Registrar la hora de última vez visto bien: Código ACV. Traslado inmediato [ACLS]."),
+      R("se3", "Fiebre, rigidez de nuca o petequias", "Sospecha de meningitis o sepsis: barbijo, acceso venoso y traslado."),
+      R("se4", "Sospecha de intoxicación: fármacos, alcohol, drogas o monóxido de carbono", "Ver motivo Intoxicación. Miosis con bradipnea: naloxona. Monóxido: sacar del ambiente y O₂ al 100 %. Traslado."),
+      R("se5", "Golpe en la cabeza reciente o anticoagulado", "Lesión intracraneal posible: traslado para tomografía."),
+      R("se7", "Confusión aguda o fluctuante sin causa reversible (4AT ≥ 4)", "Delirium: necesita estudio de la causa. Traslado."),
+      R("se8", "Convulsión, o estado posictal que no mejora", "Ver motivo Convulsión. Traslado."),
+      R("se9", "Glucemia < 70 que no revierte, o > 400 mg/dl", "Seguir el motivo de glucemia que corresponda. Traslado."),
+      A("se10", "Glucemia < 70 que revierte por completo con el tratamiento", "La causa fue la hipoglucemia: seguir el motivo Hipoglucemia."),
+      A("se11", "Demencia o deterioro conocido y está igual que siempre según el cuidador", "Sin cambio agudo: puede quedar con su cuidador y consulta con su médico."),
+      A("se12", "Medicación nueva o aumento de dosis (benzodiacepinas, opioides, anticolinérgicos) en adulto mayor", "Probable efecto adverso: revisar con su médico; umbral bajo para trasladar.")
+    ],
+    soporte: [
+      "Vía aérea: posición lateral si no hay trauma, aspiración, cánula. O₂ para SatO₂ ≥ 94 %.",
+      "Glucemia capilar siempre. Hipoglucemia: dextrosa EV o glucagón; alcoholismo o desnutrición: tiamina antes.",
+      "Miosis con bradipnea: naloxona 0,4 mg EV, IM o intranasal, repetir según respuesta [ACLS].",
+      "Temperatura, ECG y escala de Cincinnati.",
+      "Preaviso al centro receptor."
+    ],
+    diagnosticos: [
+      {
+        id: "deterioro_basal", cie10: "F03", snomed: "",
+        nombre: "Deterioro cognitivo conocido, en su estado habitual",
+        criterio: "El cuidador confirma que está igual que siempre, sin cambio agudo; signos vitales, glucemia y examen neurológico sin cambios.",
+        tratamiento: [],
+        receta: [],
+        medidas: ["Ambiente tranquilo, con luz de día y objetos conocidos.", "Asegurar hidratación y alimentación."],
+        indicaciones: ["Consulta con su médico en forma programada.", "Revisar la medicación con su médico."],
+        alarma: ["Más confundido o somnoliento que lo habitual.", "Fiebre, no come o no toma líquidos.", "Debilidad de un lado, boca torcida o dificultad para hablar.", "Caída o golpe en la cabeza.", ALARMA_GENERAL]
+      }
+    ]
+  });
+
   // Reemplaza el motivo combinado de glucemia por los dos nuevos, en el mismo lugar.
   P.splice(P.indexOf(vieja), 1, ...NUEVOS);
 
@@ -413,7 +455,7 @@
   };
   Object.entries(MAS).forEach(([id, kws]) => { const p = buscarP(id); if (p) p.keywords.push(...kws); });
   // Motivos que son de adultos: el buscador los baja cuando el paciente es un niño.
-  ["caida", "tec_adulto", "deshidratacion", "hipotension", "metrorragia"].forEach((id) => { const p = buscarP(id); if (p) p.adulto = true; });
+  ["caida", "tec_adulto", "deshidratacion", "sensorio", "hipotension", "metrorragia"].forEach((id) => { const p = buscarP(id); if (p) p.adulto = true; });
   // "mareo" pasa a tener motivo propio: se quita de foco neurológico para no competir.
   const neuro = buscarP("neuro");
   if (neuro) neuro.keywords = neuro.keywords.filter((k) => !/^mareo$/.test(k));
