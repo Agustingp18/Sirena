@@ -126,7 +126,7 @@
       override: false, dx: null,
       v: S.vt && Date.now() - S.vt < 30 * 60000 ? S.v : { ta: "", tas: "", tad: "", fc: "", fr: "", sat: "", temp: "", gluc: "", gcs: "", arm: "", o2: false },
       vt: S.vt && Date.now() - S.vt < 30 * 60000 ? S.vt : 0,
-      g: {}, esc: {}, xab: { ok: false, t: "", open: "" }, autoG: new Set(), dxSel: null, dxOtro: "", vRef: [],
+      g: {}, esc: {}, xab: { ok: false, t: "", open: "" }, autoG: new Set(), dxSel: null, dxOtro: "", vRef: [], medConducta: "",
       dados: {},
       hc: { edad: "", sexo: "", antec: "", cv: "", resp: "", abd: "", neuro: "", desc: new Set(), descOtro: "", obs: "", rcp: false, ecg: false, paciente: "", intern: "" },
       gcsComp: null,
@@ -561,8 +561,10 @@
     return (dx.recetaPed || []).filter((x) => !edadBloquea(x)).map((x) => `${x.n} ${textoPed(x.kg, kgPac(), "por peso")}`);
   }
   const embInfo = (f) => (S.pac.emb && window.FICHA_EMB && window.FICHA_EMB.items[f]) || null;
-  const dado = (r) => !r.bloq && !r.alergia && (r.key in S.dados ? S.dados[r.key] : !r.cond && !((embInfo(r.f) || [])[0] === "no"));
-  function medicacionDada(dx) { return esNino() && !esPed() ? [] : medicacion(dx).filter(dado); }
+  // Nada figura como administrado hasta que el médico lo tilde, y solo si eligió administrar.
+  const dado = (r) => !r.bloq && !r.alergia && !!S.dados[r.key];
+  function medicacionDada(dx) { return S.medConducta !== "adm" || (esNino() && !esPed()) ? [] : medicacion(dx).filter(dado); }
+  const CONDUCTA_MED = { adm: "Administrar en domicilio", vo: "Indicación por boca", no: "Sin medicación" };
   function dosisCorta(t) { return String(t).split(/\.\s|\. /)[0].replace(/\.$/, ""); }
   const enDomicilio = () => S.flujo === "domicilio";
 
@@ -631,7 +633,12 @@
     const dxp = presuntivosElegidos();
     if (enDomicilio() && dx) {
       meds = medicacionDada(dx).map((r) => `${nombreFarmaco(r.f)} ${dosisCorta(r.dosis)}`);
-      tto = [...meds, ...recetaPedTxt(dx).map((t) => `Rp/ ${t}`), ...dx.receta.map((t) => `Rp/ ${t}`), ...dx.medidas, ...dx.indicaciones];
+      const rx = [...recetaPedTxt(dx).map((t) => `Rp/ ${t}`), ...dx.receta.map((t) => `Rp/ ${t}`)];
+      const mc = S.medConducta;
+      const lineaMed = mc === "adm" ? (meds.length ? [`Se administra: ${meds.join("; ")}`] : ["No se administra medicación"])
+        : mc === "vo" ? [rx.length ? "No se administra medicación parenteral. Indicación por boca, se autoadministra:" : "No se administra medicación. Indicación por boca, se autoadministra."]
+        : mc === "no" ? ["Conducta sin medicación."] : [];
+      tto = [...lineaMed, ...(mc === "no" ? [] : rx), ...dx.medidas, ...dx.indicaciones];
     } else if (!enDomicilio() && p) {
       tto = ["Traslado. Soporte durante el traslado según protocolo."];
     }
@@ -660,11 +667,15 @@
     if (S.flujo === "derivacion") return "Traslado";
     return S.override ? "Domicilio pese a criterio de traslado" : "Domicilio";
   }
+  function medRegistro(dx) {
+    if (S.medConducta === "vo") return "Indicación VO (se autoadministra)";
+    if (S.medConducta === "no") return "Sin medicación";
+    return dx ? medicacionDada(dx).map((r) => nombreFarmaco(r.f)).join("; ") : "";
+  }
   function filaRegistro() {
     const p = protocolo(), dx = dxActual(), d = new Date(S.inicio || Date.now());
     const pad = (n) => String(n).padStart(2, "0");
     const dom = enDomicilio() && dx;
-    const meds = dom ? medicacionDada(dx).map((r) => nombreFarmaco(r.f)) : [];
     const falt = dom ? dx.tratamiento.map(resolver).filter((r) => r.estado === "no").map((r) => nombreFarmaco(r.original)) : [];
     const h = d.getHours();
     const fila = [
@@ -674,7 +685,7 @@
       p && p.general ? "Manejo general" : "Protocolo específico",
       presuntivosElegidos().join("; "), (presuntivos()[0] || {}).c || "", dom ? dx.snomed : "",
       tildadas("rojo").map((b) => b.texto).join("; "), tildadas("amarillo").map((b) => b.texto).join("; "),
-      conductaTxt(), S.hc.paciente, S.hc.intern, meds.join("; "), falt.join("; "),
+      conductaTxt(), S.hc.paciente, S.hc.intern, dom ? medRegistro(dx) : "", falt.join("; "),
       S.hc.rcp ? "Sí" : "No", S.hc.ecg ? "Sí" : "No",
       S.v.ta, S.v.fc, S.v.fr, S.v.sat, S.v.temp, S.v.gluc, S.v.gcs, "v" + META.version,
       esNino() ? "Pediátrico" : (S.pac.tipo === "adulto" || S.hc.edad ? "Adulto" : ""), S.pac.kg, S.pac.emb ? "Sí" : "",
@@ -1143,13 +1154,19 @@
       const filas = dx.tratamiento.map(resolver);
       const cuenta = { ok: 0, alt: 0, no: 0 };
       filas.forEach((r) => cuenta[r.estado]++);
-      html += `<article class="block" id="b1"><h2><span class="n">1</span>Medicación a administrar</h2><div class="body">
+      const mc = S.medConducta;
+      html += `<article class="block" id="b1"><h2><span class="n">1</span>Medicación</h2><div class="body">
+        <div class="seg conmed" role="group" aria-label="Conducta con la medicación">${Object.entries(CONDUCTA_MED).map(([k, t]) => `<button type="button" data-act="medConducta" data-val="${k}" aria-pressed="${mc === k}">${t}</button>`).join("")}</div>
+        ${!mc ? `<p class="hint">Elegí la conducta. Nada queda registrado como administrado hasta que lo tildes.</p>` : ""}
+        ${mc === "vo" ? `<div class="alert ok"><p>El paciente se autoadministra lo indicado en la receta (bloque 2). En la historia clínica queda: "No se administra medicación parenteral. Indicación por boca".</p></div>` : ""}
+        ${mc === "no" ? `<div class="alert ok"><p>En la historia clínica queda: "Conducta sin medicación". Siguen valiendo las indicaciones y las pautas de alarma.</p></div>` : ""}
+        ${mc !== "adm" ? "" : `
         ${esPed() && !kgPac() ? `<div class="alert warn"><p class="k">Cargá el peso</p><p>Las dosis se calculan con el peso del niño.</p><div class="pacdatos"><label class="vf"><span>Peso</span><input data-pac="kg" data-rd="1" type="text" inputmode="decimal" autocomplete="off" placeholder="kg" value="${esc(S.pac.kg)}" aria-label="Peso en kg"></label></div></div>` : ""}
         ${esPed() && kgPac() ? `<p class="hint">Dosis calculadas para ${esc(S.pac.kg)} kg. Verificá la concentración del envase.</p>` : ""}
         ${esNino() && !esPed() ? `<div class="alert warn"><p class="k">Paciente pediátrico</p><p>Las dosis de este protocolo son de adulto. Calculá por peso en la ficha de medicación pediátrica${S.pac.kg ? ` (${esc(S.pac.kg)} kg cargados)` : ""}.</p><div class="row-btns"><button class="btn sm primary" data-act="go" data-to="f-ped">Abrir medicación pediátrica</button></div></div>` : `<p class="hint">Tildado = administrado (pasa a la historia clínica). Los marcados "según cuadro" solo si corresponde.</p>
         ${S.pac.emb ? `<div class="alert warn"><p><b>Embarazada:</b> cada fármaco indica si se puede usar. Los contraindicados quedan sin tildar.</p></div>` : ""}
         ${meds.length ? meds.map((r) => r.alergia ? `<div class="rx off"><b>${esc(nombreFarmaco(r.f))}</b><span class="note">Alergia declarada (${esc(S.g.a_alerg_t || "")}): no administrar.</span></div>` : r.bloq ? `<div class="rx off"><b>${esc(nombreFarmaco(r.f))}</b><span class="note">No indicado a esta edad. ${esc(r.edadTxt || "")}.</span></div>` : `<div class="rx${r.cond ? " cond" : ""}"><label class="given"><input type="checkbox" data-act="dado" data-key="${r.key}" ${dado(r) ? "checked" : ""}><span class="box" aria-hidden="true"></span><b>${esc(nombreFarmaco(r.f))}</b>${r.cond ? `<em class="condt">según cuadro</em>` : ""}</label><span class="pres">${esc(presentacion(r.f))}</span><span>${esc(r.dosis)}</span>${r.estado === "alt" ? `<span class="note">Sustituye a ${esc(nombreFarmaco(r.original))} (sin stock).</span>` : ""}${r.nota ? `<span class="note">${esc(r.nota)}</span>` : ""}${embInfo(r.f) ? `<span class="embn ${embInfo(r.f)[0]}">Embarazo: ${esc(embInfo(r.f)[1])}</span>` : ""}</div>`).join("")
-          : `<p class="hint">${dx.tratamiento.length ? "Ningún fármaco indicado está en el maletín. Ver bloque 3." : "Este cuadro no requiere medicación del maletín."}</p>`}`}
+          : `<p class="hint">${dx.tratamiento.length ? "Ningún fármaco indicado está en el maletín. Ver bloque 3." : "Este cuadro no requiere medicación del maletín."}</p>`}`}`}
       </div></article>
       <article class="block"><h2><span class="n">2</span>Indicaciones al paciente</h2><div class="body">
         ${dx.medidas.length || dx.indicaciones.length ? `<div><h3>Indicaciones</h3><ul>${[...dx.medidas, ...dx.indicaciones].map((t) => `<li>${esc(t)}</li>`).join("")}</ul></div>` : ""}
@@ -1726,6 +1743,7 @@
         if (actual() === "triage") { aplicarVitales(); render(true); } else render(true);
         break;
       }
+      case "medConducta": S.medConducta = S.medConducta === b.dataset.val ? "" : b.dataset.val; render(true); break;
       case "copiarPre": copiar(preavisoTxt(), "prePlano", "Preaviso copiado"); break;
       case "gotModo": FS.got.modo = b.dataset.val; render(true); break;
       case "gotTu": FS.got.tu = b.dataset.val; render(true); break;
@@ -1738,7 +1756,7 @@
       case "override1": $("#confirm").hidden = false; $("#confirm .btn.primary").focus(); break;
       case "override0": $("#confirm").hidden = true; break;
       case "override2": S.override = true; S.dx = null; S.hc.paciente = "Queda en domicilio"; S.hc.intern = ""; go("domicilio"); break;
-      case "dx": S.dx = b.dataset.id; S.dxSel = null; render(true); setTimeout(() => { const el = $("#b1"); if (el) el.scrollIntoView({ behavior: "smooth", block: "start" }); }, 30); break;
+      case "dx": S.dx = b.dataset.id; S.dxSel = null; S.medConducta = ""; S.dados = {}; render(true); setTimeout(() => { const el = $("#b1"); if (el) el.scrollIntoView({ behavior: "smooth", block: "start" }); }, 30); break;
       case "copiar": copiar(textoHC()); break;
       case "nuevo": nuevo(); break;
       case "guardarReg": if (registrarAuto(true)) toast("Registrada"); break;

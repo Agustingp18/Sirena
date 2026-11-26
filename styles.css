@@ -644,3 +644,7 @@ body { font-family: var(--font-ui); font-feature-settings: "kern"; }
 .dxpi b { border-radius: 2px; }
 .dxpi[aria-pressed="true"] { border-color: var(--fg); }
 .pbtn[aria-pressed="true"] span { color: var(--accent-ink) !important; }
+
+/* 2.6: conducta con la medicación */
+.seg.conmed { display: grid; grid-template-columns: 1fr; gap: 6px; margin-bottom: 10px; }
+.seg.conmed button { min-height: 52px; border-radius: var(--r); text-align: left; padding: 0 16px; }
