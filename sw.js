@@ -1,7 +1,7 @@
 /* Service worker de Sirena.
    Con conexión: siempre trae la versión más nueva de GitHub y la guarda.
    Sin conexión: usa la copia guardada. Así la app nunca queda pegada a una versión vieja. */
-const CACHE = "sirena-v14";
+const CACHE = "sirena-v20";
 const ARCHIVOS = [
   "./",
   "./index.html",
@@ -19,6 +19,14 @@ const ARCHIVOS = [
   "./fichas.js",
   "./manifest.webmanifest",
   "./icon-192.png",
+  "./logo-sirena.png",
+  "./favicon-48.png",
+  "./icon-apple-180.png",
+  "./fuente-texto-400.woff2",
+  "./fuente-texto-600.woff2",
+  "./fuente-texto-800.woff2",
+  "./fuente-mono-500.woff2",
+  "./fuente-mono-700.woff2",
   "./icon-512.png",
   "./icon-maskable-512.png"
 ];

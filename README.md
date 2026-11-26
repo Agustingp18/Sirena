@@ -69,6 +69,12 @@ Primera vez en el teléfono: cargar el maletín real (pantalla Maletín) y pegar
 
 Todo lo cargado arma la historia clínica en el orden del papel. Al final, la app propone hasta 3 diagnósticos presuntivos redactados en forma sindrómica, con lo que justifica el traslado como "a descartar" y su código CIE-10; se pueden sacar, agregar o escribir otro. Las alergias declaradas bloquean el fármaco del maletín.
 
+## Diseño (versión 2.4)
+
+Estética de instrumento: fondo carbón, bordes de 1 px, esquinas casi rectas y sin sombras. Colores con un solo significado: **blanco** = seleccionado, **ámbar** = precaución y paso activo, **verde** = completo, **rojo** = crítico. Botones de 52 px como mínimo, para usar con guantes. Arriba de la atención, una barra de fases (Motivo · Evaluar · Decidir · Historia) y un reloj desde la hora de llegada, que se pone en ámbar a los 10 minutos con paciente crítico o trauma [PHTLS]. El botón ☀ activa el modo sol, de alto contraste.
+
+Tipografías integradas (funcionan sin conexión): Atkinson Hyperlegible Next para textos (distingue I, l y 1, y 0 de O) y JetBrains Mono para números, dosis y siglas. Licencia SIL OFL 1.1, ver `LICENCIA-FUENTES.txt`.
+
 ## Pestañas
 
 - **Atención**: código, motivo, banderas, domicilio o traslado, historia clínica y registro.

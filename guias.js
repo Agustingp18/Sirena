@@ -152,7 +152,7 @@
       siGen: { m_acoag: "tc6" }
     },
     metrorragia: {
-      ocultar: ["p_emb"],
+      ocultar: ["p_emb", "s_inicio"],
       S: [tx("mt_fum", "Fecha de última menstruación (FUM)", "dd/mm"), tx("mt_desde", "¿Desde cuándo sangra?"), tx("mt_toallas", "Toallas por hora o por día"), sn("mt_coag", "¿Coágulos grandes?", { si: "mt5" }), sn("mt_dolor", "¿Dolor abdominal?"), sn("mt_mareo", "¿Mareo al pararse o desmayo?", { si: "mt3" })],
       M: [op("mt_mac", "Anticoncepción", ["Ninguna", "Pastillas", "Inyectable", "DIU", "Implante", "Ligadura"])],
       P: [op("mt_emb", "¿Puede estar embarazada?", ["No", "Sí o no sabe", "Embarazo confirmado"], { fl: { "Sí o no sabe": "mt1", "Embarazo confirmado": "mt1" } }), sn("mt_test", "¿Test de embarazo?", { txt: "Resultado" }), sn("mt_post", "¿Parto, cesárea o aborto en las últimas 6 semanas?", { si: "mt6" }), sn("mt_meno", "¿Menopausia?", { si: "mt9" })],

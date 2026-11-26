@@ -31,7 +31,7 @@
     verde: { label: "Verde", sub: "Consulta" }
   };
 
-  const LOGO = `<svg class="logo" viewBox="0 0 48 48" aria-hidden="true"><rect x="13" y="5" width="8" height="4" rx="1.5" fill="var(--rojo)"/><path d="M4 14h26v22H4z" fill="var(--fg)"/><path d="M30 20h7.5l6.5 8v8H30z" fill="var(--fg)"/><path d="M32.5 22.5h4.3l3.9 5H32.5z" fill="var(--bg)"/><path d="M15 18h4v5h5v4h-5v5h-4v-5h-5v-4h5z" fill="var(--rojo)"/><circle cx="12" cy="37" r="4.2" fill="var(--bg)"/><circle cx="12" cy="37" r="2.6" fill="var(--fg)"/><circle cx="36" cy="37" r="4.2" fill="var(--bg)"/><circle cx="36" cy="37" r="2.6" fill="var(--fg)"/></svg>`;
+  const LOGO = `<img class="logo" src="logo-sirena.png" alt="" width="34" height="34">`;
 
   /* Hallazgos "normales" para completar rápido la planilla */
   const NORMAL = {
@@ -46,6 +46,32 @@
 
   /* ------------------------------------------------------------ signos vitales: normales, técnica y escalas */
   const NORMALES = { tas: "120", tad: "80", fc: "80", fr: "16", sat: "98", temp: "36,5", gluc: "100", gcs: "15", arm: "No" };
+  /* Valores normales por edad (PALS, AHA 2020): rango despierto y valor central para completar.
+     [hasta años, etiqueta, FC, FR, TAS, TAD] */
+  const PED_NORM = [
+    [1 / 12, "neonato", [100, 205], [30, 53], [67, 84], [35, 53]],
+    [1, "lactante", [100, 180], [30, 53], [72, 104], [37, 56]],
+    [3, "1 a 2 años", [98, 140], [22, 37], [86, 106], [42, 63]],
+    [6, "3 a 5 años", [80, 120], [20, 28], [89, 112], [46, 72]],
+    [10, "6 a 9 años", [75, 118], [18, 25], [97, 115], [57, 76]],
+    [12, "10 a 11 años", [75, 118], [18, 25], [102, 120], [61, 80]],
+    [15, "12 a 14 años", [60, 100], [12, 20], [110, 131], [64, 83]]
+  ];
+  const medio = (r, paso = 1) => String(Math.round((r[0] + r[1]) / 2 / paso) * paso);
+  function normPed() {
+    const ed = num(S.hc.edad);
+    if (ed === null || ed < 0) return null;
+    const f = PED_NORM.find((x) => ed < x[0]) || PED_NORM[PED_NORM.length - 1];
+    return { etiqueta: f[1], fc: f[2], fr: f[3], tas: f[4], tad: f[5],
+      valores: { tas: medio(f[4], 5), tad: medio(f[5], 5), fc: medio(f[2], 5), fr: medio(f[3]), sat: "98", temp: "36,5", gluc: "90", gcs: "15", arm: "No" } };
+  }
+  /* Normales que corresponden al paciente actual: adulto, o niño según la edad (null si falta la edad). */
+  const normalesActuales = () => (esNino() ? (normPed() || null) : { valores: NORMALES });
+  function fueraDeRango(k) {
+    const n = esNino() ? normPed() : null, v = num(S.v[k]);
+    if (!n || v === null || !n[k]) return false;
+    return v < n[k][0] || v > n[k][1];
+  }
   const GCS = [
     { k: "o", t: "Apertura ocular", ops: [[4, "Espontánea"], [3, "A la orden verbal"], [2, "Al estímulo doloroso"], [1, "Ninguna"]] },
     { k: "v", t: "Respuesta verbal", ops: [[5, "Orientado"], [4, "Confuso"], [3, "Palabras inapropiadas"], [2, "Sonidos incomprensibles"], [1, "Ninguna"]] },
@@ -100,7 +126,7 @@
       override: false, dx: null,
       v: S.vt && Date.now() - S.vt < 30 * 60000 ? S.v : { ta: "", tas: "", tad: "", fc: "", fr: "", sat: "", temp: "", gluc: "", gcs: "", arm: "", o2: false },
       vt: S.vt && Date.now() - S.vt < 30 * 60000 ? S.vt : 0,
-      g: {}, esc: {}, xab: { ok: false, t: "", open: "" }, autoG: new Set(), dxSel: null, dxOtro: "",
+      g: {}, esc: {}, xab: { ok: false, t: "", open: "" }, autoG: new Set(), dxSel: null, dxOtro: "", vRef: [],
       dados: {},
       hc: { edad: "", sexo: "", antec: "", cv: "", resp: "", abd: "", neuro: "", desc: new Set(), descOtro: "", obs: "", rcp: false, ecg: false, paciente: "", intern: "" },
       gcsComp: null,
@@ -219,14 +245,15 @@
       }
       envioError = "";
       try { localStorage.setItem(KEY_ULT, String(Date.now())); } catch (e) { /* nada */ }
-      if (enviadas || manual) toast(enviadas ? `${enviadas} atenci${enviadas > 1 ? "ones enviadas" : "ón enviada"} a la planilla` : "Planilla al día");
+      // El envío automático es silencioso: solo avisa cuando se toca "Enviar ahora".
+      if (manual) toast(enviadas ? `${enviadas} atenci${enviadas > 1 ? "ones enviadas" : "ón enviada"} a la planilla` : "Planilla al día");
     } catch (e) {
       envioError = String(e && e.message || e);
       if (manual) toast("No se pudo enviar. Quedan guardadas en el teléfono.");
     } finally {
       enviando = false;
       const foco = document.activeElement && document.activeElement.matches("input, textarea, select");
-      if (actual() === "registro" ? !foco || document.activeElement.id !== "envioUrl" : actual() === "inicio" && !foco) render(true);
+      if (actual() === "registro" && (!foco || document.activeElement.id !== "envioUrl")) render(true);
     }
   }
   function ultimoEnvio() {
@@ -568,6 +595,14 @@
       <p class="hint">Redactados en forma sindrómica; lo que justifica el traslado figura como "a descartar". Tocá para sacar o agregar: el orden es el de la lista.</p>`;
   }
 
+  /* Lo completado con el botón de normales se aclara en la historia clínica: no fue medido. */
+  function refTxt() {
+    const NOM = { tas: "TA", tad: "TA", fc: "FC", fr: "FR", sat: "SatO₂", temp: "T°", gluc: "glucemia", gcs: "Glasgow" };
+    const r = [...new Set((S.vRef || []).filter((k) => S.v[k]).map((k) => NOM[k]).filter(Boolean))];
+    if (!r.length) return "";
+    const n = esNino() && normPed() ? normPed().etiqueta : "adulto";
+    return ` · No medidos, valores normales de referencia para ${n} (PALS): ${r.join(", ")}`;
+  }
   function camposHC() {
     const p = protocolo();
     const dx = dxActual();
@@ -585,7 +620,7 @@
       `TA ${v.ta || "—"}`, `FC ${v.fc || "—"}`, `FR ${v.fr || "—"}`, `ARM ${v.arm || "—"}`,
       `SatO₂ ${v.sat ? v.sat + " %" : "—"}`, `T° ax ${v.temp ? v.temp + " °C" : "—"}`,
       `Glucemia ${v.gluc === "HI" ? "HI (por encima del rango del glucómetro)" : v.gluc === "LO" ? "LO (por debajo del rango del glucómetro)" : v.gluc ? v.gluc + " mg/dl" : "—"}`, `Glasgow ${v.gcs ? v.gcs + "/15" + (S.gcsComp ? ` (O${S.gcsComp.o} V${S.gcsComp.v} M${S.gcsComp.m})` : "") : "—"}`
-    ].join(" · ")]);
+    ].join(" · ") + refTxt()]);
     const exam = (k) => [S.hc[k], ...itemsEx().filter((it) => it.hc === k).map(respTxt)].filter(Boolean).join(". ") || "—";
     F.push(["Cardiovascular", exam("cv")]);
     F.push(["Respiratorio", exam("resp")]);
@@ -774,8 +809,44 @@
       ${chip ? `<span class="chip ${c || "none"}">${c ? "Código " + CODIGOS[c].label : "Sin código"}</span>` : ""}
       ${extra}
       <button class="back nota" data-act="nota" aria-label="Anotar un problema de la app"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M13.5 6.5l4 4"/></svg></button>
-    </div></header>`;
+    </div>${fasesHTML()}</header>`;
   }
+
+  /* ------------------------------------------------------------ fases de la atención y reloj de escena */
+  const FASES = [["inicio", "Motivo"], ["triage", "Evaluar"], ["decision", "Decidir"], ["hc", "Historia"]];
+  function fasesHTML() {
+    const a = actual();
+    if (!S.motivo || !["inicio", "triage", "derivacion", "domicilio", "hc"].includes(a)) return "";
+    const pos = { inicio: 0, triage: 1, derivacion: 2, domicilio: 2, hc: 3 }[a];
+    const decidida = S.flujo === "derivacion" || (S.flujo === "domicilio" && !!S.dx);
+    const estado = (i) => (i === pos ? "act" : i < pos || (i === 2 && decidida && pos > 2) ? "ok" : "");
+    return `<div class="wrap fasesW"><div class="fases" aria-label="Fases de la atención">${FASES.map(([, t], i) => `<div class="fase ${estado(i)}"${i === pos ? ' aria-current="step"' : ""}><span>${t}</span></div>`).join("")}</div>${relojHTML()}</div>`;
+  }
+  const TRAUMA = ["tec_adulto", "trauma_escuela", "caida", "herida", "quemadura", "lumbar"];
+  function relojRef() {
+    if (S.horas.llegada && /^\d{1,2}:\d{2}$/.test(S.horas.llegada)) {
+      const [h, m] = S.horas.llegada.split(":").map(Number), d = new Date(); d.setHours(h, m, 0, 0);
+      if (d - Date.now() > 60000) d.setDate(d.getDate() - 1);
+      return { t: d.getTime(), label: "en escena" };
+    }
+    return S.inicio ? { t: S.inicio, label: "atención" } : null;
+  }
+  function relojTxt() {
+    const r = relojRef(); if (!r) return null;
+    const seg = Math.max(0, Math.floor((Date.now() - r.t) / 1000));
+    const h = Math.floor(seg / 3600), m = Math.floor((seg % 3600) / 60), x = seg % 60, p2 = (n) => String(n).padStart(2, "0");
+    const critico = tildadas("rojo").some((b) => U.some((u) => u.id === b.id)) || TRAUMA.includes(S.motivo);
+    return { txt: h ? `${h}:${p2(m)}:${p2(x)}` : `${p2(m)}:${p2(x)}`, label: r.label, alerta: critico && seg >= 600 && S.flujo !== "domicilio" };
+  }
+  function relojHTML() {
+    const r = relojTxt(); if (!r) return "";
+    return `<div class="reloj${r.alerta ? " alerta" : ""}" id="reloj" title="${r.alerta ? "Más de 10 minutos en escena con paciente crítico o trauma [PHTLS]" : "Tiempo desde la llegada"}"><b>${r.txt}</b><small>${r.label.toUpperCase()}</small></div>`;
+  }
+  setInterval(() => {
+    const el = document.getElementById("reloj"); if (!el) return;
+    const r = relojTxt(); if (!r) return;
+    el.querySelector("b").textContent = r.txt; el.classList.toggle("alerta", r.alerta);
+  }, 1000);
   const bar = (html) => `<nav class="bar"><div class="wrap">${html}</div></nav>`;
 
   function barTriage() {
@@ -787,7 +858,9 @@
 
   function vitalesHTML() {
     const lab = (k, l) => `<button type="button" class="vlab" data-act="vinfo" data-k="${k}" aria-label="${l}: ver cómo se mide">${l}<i aria-hidden="true">i</i></button>`;
-    const inp = (k, l, mode = "numeric") => `<input data-v="${k}" type="text" inputmode="${mode}" ${mode === "numeric" ? 'pattern="[0-9]*"' : ""} autocomplete="off" placeholder="${NORMALES[k]}" value="${esc(S.v[k])}" aria-label="${l}">`;
+    const N = normalesActuales();
+    const ph = (k) => (N ? N.valores[k] : k === "sat" ? "98" : k === "temp" ? "36,5" : k === "gcs" ? "15" : "edad?");
+    const inp = (k, l, mode = "numeric") => `<input data-v="${k}" class="${fueraDeRango(k) ? "fuera" : ""}${(S.vRef || []).includes(k) ? " ref" : ""}" type="text" inputmode="${mode}" ${mode === "numeric" ? 'pattern="[0-9]*"' : ""} autocomplete="off" placeholder="${ph(k)}" value="${esc(S.v[k])}" aria-label="${l}">`;
     const f = (k, l, mode) => `<div class="vf">${lab(k, l)}${inp(k, l, mode)}</div>`;
     const gcsTxt = S.gcsComp ? ` <em class="gcomp">O${S.gcsComp.o} V${S.gcsComp.v} M${S.gcsComp.m}</em>` : "";
     return `<div class="vitals">
@@ -797,7 +870,7 @@
       <div class="vf">${lab("gcs", "Glasgow")}${inp("gcs", "Glasgow")}${gcsTxt}</div>
       <div class="vf">${lab("arm", "ARM")}<button type="button" class="armv" data-act="vinfo" data-k="arm">${esc(S.v.arm || "—")}</button></div>
     </div>
-    <div class="vhelp"><span class="hint">Tocá el nombre de cada signo para ver cómo se mide. Los números grises son los valores normales de un adulto.</span>
+    <div class="vhelp"><span class="hint">${esNino() ? (normPed() ? `Los números grises son los normales para ${esc(normPed().etiqueta)} (PALS): FC ${normPed().fc.join("–")}, FR ${normPed().fr.join("–")}, TA ${normPed().tas[0]}–${normPed().tas[1]}/${normPed().tad[0]}–${normPed().tad[1]}. En naranja, lo que está fuera de rango.` : "Cargá la edad del niño (lactantes en años con coma: 6 meses = 0,5) para ver los normales que corresponden.") : "Tocá el nombre de cada signo para ver cómo se mide. Los números grises son los valores normales de un adulto."}</span>
       <button type="button" class="btn sm ghost" data-act="vnormales">Completar vacíos con normales</button></div>`;
   }
 
@@ -1601,11 +1674,12 @@
       }
       case "armsel": S.v.arm = b.dataset.val; cerrarHoja(); vitalCambio(); break;
       case "vnormales": {
-        if (esNino()) { toast("En niños los valores normales cambian: cargá los medidos"); break; }
-        let n = 0;
-        Object.entries(NORMALES).forEach(([k, val]) => { if (!S.v[k]) { S.v[k] = val; n++; } });
+        const N = normalesActuales();
+        if (!N) { toast("Cargá la edad del niño para completar con sus valores normales"); break; }
+        let n = 0; S.vRef = S.vRef || [];
+        Object.entries(N.valores).forEach(([k, val]) => { if (!S.v[k]) { S.v[k] = val; n++; if (k !== "arm" && !S.vRef.includes(k)) S.vRef.push(k); } });
         if (S.v.tas && S.v.tad) S.v.ta = `${S.v.tas}/${S.v.tad}`;
-        vitalCambio(); toast(n ? `${n} valor${n > 1 ? "es" : ""} completado${n > 1 ? "s" : ""} con normales` : "No había campos vacíos"); break;
+        vitalCambio(); render(true); toast(n ? `${n} valor${n > 1 ? "es" : ""} completado${n > 1 ? "s" : ""} con normales${esNino() ? " para " + N.etiqueta : ""}` : "No había campos vacíos"); break;
       }
       case "codigo": S.codigo = S.codigo === b.dataset.c ? null : b.dataset.c; render(); break;
       case "enviar": enviarPendientes(true); break;
@@ -1727,6 +1801,8 @@
       if (k === "tas" && val.length === 3) { const d = $("input[data-v=tad]"); if (d && !d.value) d.focus(); }
       if (k === "gcs") { S.gcsComp = null; const em = t.parentElement.querySelector(".gcomp"); if (em) em.remove(); }
       marcarMedicion();
+      if (S.vRef) { const kk = k === "tas" || k === "tad" ? ["tas", "tad"] : [k]; S.vRef = S.vRef.filter((x) => !kk.includes(x)); t.classList.remove("ref"); }
+      t.classList.toggle("fuera", fueraDeRango(k));
       if (actual() === "triage") { aplicarVitales(); refrescarTriage(); } else if (actual() === "herramientas") { const iw = $("#ixW"); if (iw) iw.innerHTML = indicesHTML(); } else refrescarHC();
     }
     else if (t.dataset.hc) { S.hc[t.dataset.hc] = t.value; refrescarHC(); }
